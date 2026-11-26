@@ -18,9 +18,36 @@ struct FixtureApp: App {
                     }
                     UIPasteboard.general.setData(image.pngData()!, forPasteboardType: "public.png")
                 }
-                TextEditor(text: $input).accessibilityIdentifier("input").frame(height: 100).border(.secondary)
+                KeyboardField(text: $input).frame(height: 100).border(.secondary)
                 Text(verbatim: input).accessibilityIdentifier("inserted")
             }.padding()
         }
+    }
+}
+
+private struct KeyboardField: UIViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIView(context: Context) -> UITextView {
+        let view = FixtureTextView()
+        view.accessibilityIdentifier = "input"
+        view.delegate = context.coordinator
+        return view
+    }
+    func updateUIView(_ view: UITextView, context: Context) {}
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        let field: KeyboardField
+        init(_ field: KeyboardField) { self.field = field }
+        func textViewDidChange(_ textView: UITextView) { field.text = textView.text }
+    }
+}
+
+private final class FixtureTextView: UITextView {
+    // The fresh English simulator has one enabled zh-Hans input source after Settings setup.
+    // Ask UIKit for that real system input mode when this field becomes first responder.
+    override var textInputMode: UITextInputMode? {
+        UITextInputMode.activeInputModes.first { $0.primaryLanguage == "zh-Hans" } ?? super.textInputMode
     }
 }

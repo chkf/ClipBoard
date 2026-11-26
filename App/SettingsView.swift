@@ -19,14 +19,14 @@ struct SettingsView: View {
                 Section {
                     Button("清空历史记录", role: .destructive) { confirming = true }
                         .accessibilityIdentifier("clearHistory")
-                        .confirmationDialog("清空全部历史记录？", isPresented: $confirming, titleVisibility: .visible) {
-                            Button("确认清空", role: .destructive) {
-                                Task { await session.edit { try await $0.delete() } }
-                            }
-                            Button("取消", role: .cancel) {}
-                        } message: { Text("保存的文本和图片将从这台设备移除。") }
                 }
             }
+            .alert("清空全部历史记录？", isPresented: $confirming) {
+                Button("取消", role: .cancel) {}
+                Button("确认清空", role: .destructive) {
+                    Task { await session.edit { try await $0.delete() } }
+                }
+            } message: { Text("保存的文本和图片将从这台设备移除。") }
             .navigationTitle("设置")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

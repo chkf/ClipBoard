@@ -44,10 +44,15 @@ final class ClipboardUITests: XCTestCase {
         settings.launch()
         settingsRow("General", in: settings).tap()
         settingsRow("Keyboard", in: settings).tap()
-        settingsRow("Keyboards", in: settings).tap()
-        let clipboard = settings.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard'")).firstMatch
+        let installed = settings.cells["KEYBOARDS"]
+        XCTAssertTrue(installed.waitForExistence(timeout: 5), settings.debugDescription)
+        installed.tap()
+        let items = settings.descendants(matching: .any)
+        let clipboard = items.matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard'")).firstMatch
         if !clipboard.exists {
-            settings.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Add New Keyboard'")).firstMatch.tap()
+            let add = items.matching(NSPredicate(format: "label BEGINSWITH[c] 'Add New Keyboard' OR identifier == 'AddNewKeyboard'")).firstMatch
+            XCTAssertTrue(add.waitForExistence(timeout: 5), settings.debugDescription)
+            add.tap()
             XCTAssertTrue(clipboard.waitForExistence(timeout: 8), settings.debugDescription)
             clipboard.tap()
         }
@@ -57,14 +62,15 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(fullAccess.waitForExistence(timeout: 5), settings.debugDescription)
         if fullAccess.value as? String != "1" {
             fullAccess.tap()
-            let allow = settings.buttons["Allow"]
-            if allow.waitForExistence(timeout: 3) { allow.tap() }
+            let allow = settings.buttons["Allow"], systemAllow = springboard.buttons["Allow"]
+            if allow.waitForExistence(timeout: 2) { allow.tap() }
+            else if systemAllow.exists { systemAllow.tap() }
         }
         fixture.launch()
         fixture.buttons["Copy text"].tap()
         fixture.textViews["input"].tap()
         let entry = label(text, in: fixture)
-        if !entry.exists {
+        if !waitFor(entry, seconds: 4) {
             let next = fixture.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
                 ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "Emoji"],
                 ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
@@ -83,6 +89,10 @@ final class ClipboardUITests: XCTestCase {
 
     func testManagementWithAnotherAppsPasteboard() {
         app.launch()
+        app.buttons["openSettings"].tap()
+        app.buttons["clearHistory"].tap()
+        app.alerts.buttons["确认清空"].tap()
+        app.buttons["closeSettings"].tap()
         fixture.launch()
         fixture.buttons["Copy text"].tap()
         app.activate()
@@ -109,7 +119,8 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(app.switches["autoSwitch"].exists)
         app.switches["autoSwitch"].tap()
         app.buttons["clearHistory"].tap()
-        let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"])).firstMatch
+        let cancel = app.alerts.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"])).firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 4), app.debugDescription)
         cancel.tap()
         app.buttons["closeSettings"].tap()
         XCTAssertTrue(picture.exists)
