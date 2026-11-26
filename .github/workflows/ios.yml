@@ -60,8 +60,7 @@ jobs:
       - name: Test app and keyboard on iOS 26
         if: matrix.task != 'ipa'
         env:
-          CLIPBOARD_TEST_APPEARANCE: ${{ (github.ref_type == 'tag' || inputs.publish) && 'dark' || 'light' }}
-          CLIPBOARD_TEST_PRIVATE_SYNC: ${{ matrix.task == 'private-simulator' }}
+          CLIPBOARD_TEST_APPEARANCE: ${{ matrix.task == 'private-simulator' && 'dark' || 'light' }}
         run: bash scripts/test-ios.sh
       - name: Build and verify device IPA
         if: matrix.task == 'ipa'
@@ -82,6 +81,7 @@ jobs:
         run: |
           if [[ -d build/Tests.xcresult ]]; then
             xcrun xcresulttool get test-results summary --path build/Tests.xcresult || true
+            xcrun xcresulttool export attachments --path build/Tests.xcresult --output-path build/screenshots
             ditto -ck --keepParent build/Tests.xcresult build/Tests.xcresult.zip
           fi
       - uses: actions/upload-artifact@v4
@@ -91,6 +91,7 @@ jobs:
           path: |
             build/*.log
             build/Tests.xcresult.zip
+            build/screenshots
           if-no-files-found: ignore
           retention-days: 7
   release:
@@ -127,13 +128,13 @@ jobs:
           fi
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$GITHUB_SHA"
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          适用于 iOS 26 及以上版本。Clipboard 在主 App 或自定义键盘打开时收集文本和图片，历史及设置保存在设备上。
+          适用于 iOS 26 及以上版本。键盘直接保存文本、图片和设置，每条记录都是整行可点的圆角键帽。底部可以输入空格、换行或退格，顶部可以管理历史和设置。
 
           用全能签或没有 App Group 的个人签，选 `-local.ipa`，重签整个 IPA 并保留键盘扩展。安装后在系统键盘设置中添加 Clipboard 并打开「允许完全访问」。
 
-          打开主 App 会发起本机同步。首次用地球键切到 Clipboard，核对相同的六位码，在主 App 和键盘各确认一次。之后打开主 App 时，Clipboard 键盘一出现就会自动合并历史。两个入口都关闭期间只能在下次读取系统剪贴板的当前内容。
+          主 App 仅提供启用说明和试用输入框，点击试用才会调起键盘。无需配对或同步。沿用原签名标识、相同包类型覆盖安装时，键盘继续使用原有历史和设置。
 
-          已有共享 App Group 的用户可继续选 `-resign.ipa` 使用同一个历史库。SideStore 安装时选择保留并注册扩展。
+          之前使用共享组历史的用户可继续选 `-resign.ipa`。SideStore 安装时选择保留并注册扩展。
 
           [安装、签名标识与校验说明](https://github.com/chkf/ClipBoard/blob/TAG/README.md)
           NOTES

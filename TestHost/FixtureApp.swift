@@ -30,8 +30,8 @@ struct FixtureApp: App {
                 Button("Copy second") {
                     let board = UIPasteboard.general
                     let before = board.changeCount
-                    board.string = "Saved while the main app was closed"
-                    confirmWrite("Second copied", after: before) { board.string == "Saved while the main app was closed" }
+                    board.string = "短句"
+                    confirmWrite("Second copied", after: before) { board.string == "短句" }
                 }
                 Button("Check clipboard image") {
                     copyStatus = UIPasteboard.general.hasImages ? "Image still on clipboard" : "Image missing"

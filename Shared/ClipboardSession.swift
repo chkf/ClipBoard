@@ -3,22 +3,14 @@ import UIKit
 
 @MainActor
 final class ClipboardSession: ObservableObject {
-    enum Mode: Equatable {
-        case app, keyboard(fullAccess: Bool)
-        var mayWrite: Bool { self != .keyboard(fullAccess: false) }
-    }
-
     @Published private(set) var rows: [ClipRow] = []
     @Published private(set) var settings = HistorySettings()
     @Published private(set) var loaded = false
     @Published private(set) var copied = 0
     @Published private(set) var message: String?
-    @Published private(set) var mode: Mode = .app
-    @Published private(set) var privateHistory = false
-    let sync = ForegroundHistorySync()
+    @Published private(set) var fullAccess = false
     private(set) var store: HistoryStore?
     private let keyboardAccess: (() -> Bool)?
-    private let syncInvitation: (() -> SyncInvitation?)?
     private let open: (Bool) async throws -> HistoryStore
     private var monitor: Task<Void, Never>?
     private var capture: Task<Void, Never>?
@@ -33,18 +25,17 @@ final class ClipboardSession: ObservableObject {
     private var lastPrune = Date.distantPast
     var active = true
 
-    init(keyboardAccess: (() -> Bool)? = nil, syncInvitation: (() -> SyncInvitation?)? = nil,
+    init(keyboardAccess: (() -> Bool)? = nil,
          open: @escaping (Bool) async throws -> HistoryStore = { try await HistoryStore.shared(readOnly: $0) }) {
         self.keyboardAccess = keyboardAccess
-        self.syncInvitation = syncInvitation
         self.open = open
     }
 
-    func start(_ mode: Mode) {
+    func start(fullAccess: Bool) {
         active = true
-        if monitor != nil, mode == self.mode { return }
+        if monitor != nil, fullAccess == self.fullAccess { return }
         stop()
-        self.mode = mode
+        self.fullAccess = fullAccess
         let generation = self.generation
         notification = NotificationCenter.default.addObserver(forName: UIPasteboard.changedNotification,
                                                                object: nil, queue: .main) { [weak self] _ in
@@ -59,8 +50,7 @@ final class ClipboardSession: ObservableObject {
     }
 
     func stop() {
-        sync.stop()
-        privateHistory = false
+        fullAccess = false
         monitor?.cancel()
         capture?.cancel()
         if let notification { NotificationCenter.default.removeObserver(notification) }
@@ -82,29 +72,24 @@ final class ClipboardSession: ObservableObject {
 
     private func tick(_ cycle: UUID) async {
         guard generation == cycle, active else { return }
-        if case .keyboard(let previous) = mode, let current = keyboardAccess?(), current != previous {
-            start(.keyboard(fullAccess: current))
+        if let current = keyboardAccess?(), current != fullAccess {
+            start(fullAccess: current)
             return
         }
         do {
             if store == nil {
-                let connection = try await open(!mode.mayWrite)
-                guard generation == cycle else { return }
-                if mode == .keyboard(fullAccess: true) { try await connection.keyboardConfigured() }
+                let connection = try await open(!fullAccess)
                 guard generation == cycle else { return }
                 store = connection
-                privateHistory = connection.privateDirectory != nil
-                if privateHistory, mode == .app { sync.offer(connection) }
             }
             guard let store else { return }
-            if privateHistory, mode == .keyboard(fullAccess: true) { sync.join(syncInvitation?(), store: store) }
-            if mode.mayWrite, Date().timeIntervalSince(lastPrune) >= 60 {
+            if fullAccess, Date().timeIntervalSince(lastPrune) >= 60 {
                 try await store.prune()
                 guard generation == cycle else { return }
                 lastPrune = Date()
             }
             let state = try await refresh(store, cycle: cycle)
-            guard generation == cycle, active, mode.mayWrite else { return }
+            guard generation == cycle, active, fullAccess else { return }
             let stamp = SystemPasteboard.stamp
             if captureStamp == stamp { return }
             capture?.cancel()
@@ -143,7 +128,7 @@ final class ClipboardSession: ObservableObject {
                 }
             }
         } catch {
-            if generation == cycle, mode.mayWrite { message = error.localizedDescription }
+            if generation == cycle, fullAccess { message = error.localizedDescription }
         }
     }
 
@@ -175,14 +160,9 @@ final class ClipboardSession: ObservableObject {
         } catch { if generation == cycle { message = error.localizedDescription } }
     }
 
-    func body(_ row: ClipRow) async -> ClipBody? {
-        do { return try await store?.body(row.id) }
-        catch { message = error.localizedDescription; return nil }
-    }
-
     @discardableResult
     func copy(_ row: ClipRow) async -> Bool {
-        guard mode.mayWrite, let store else { return false }
+        guard fullAccess, keyboardAccess?() != false, let store else { return false }
         let cycle = generation
         do {
             try await store.copy(row.id) { try SystemPasteboard.write($0) }
@@ -211,7 +191,7 @@ final class ClipboardSession: ObservableObject {
     }
 
     func edit(_ change: (HistoryStore) async throws -> Void) async {
-        guard mode.mayWrite, let store else { return }
+        guard fullAccess, keyboardAccess?() != false, let store else { return }
         let cycle = generation
         do {
             try await change(store)
@@ -219,7 +199,4 @@ final class ClipboardSession: ObservableObject {
         } catch { if generation == cycle { message = error.localizedDescription } }
     }
 
-    func syncAgain() {
-        if privateHistory, mode == .app, let store { sync.offer(store) }
-    }
 }

@@ -115,116 +115,106 @@ final class ClipboardUITests: XCTestCase {
         return false
     }
 
-    func testEnabledKeyboardInHostTextField() {
-        enableKeyboard()
-        fixture.launch()
-        copyInFixture("text")
-        fixture.textViews["input"].tap()
-        let entry = fixture.buttons[text]
-        selectClipboard(in: fixture, expecting: entry)
-        entry.tap()
-        XCTAssertEqual(fixture.textViews["input"].value as? String, text)
-        app.activate()
-        XCTAssertTrue(waitFor(label(text, in: app)), app.debugDescription)
+    private func screenshot(_ title: String, in owner: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: owner.screenshot())
+        attachment.name = title
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
-    func testForegroundSyncWithIndependentKeyboardHistory() {
+    private func historyKey(_ label: String, in owner: XCUIApplication, editing: Bool = false) -> XCUIElement {
+        owner.buttons.matching(identifier: editing ? "deleteHistoryKey" : "historyKey")
+            .matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    private func tapTrailingEdge(_ key: XCUIElement, in owner: XCUIApplication) {
+        XCTAssertGreaterThan(key.frame.width, owner.frame.width * 0.88, owner.debugDescription)
+        key.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+    }
+
+    func testSetupStaysQuietUntilTrialIsRequested() {
+        app.launch()
+        XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1.5))
+        screenshot("ClipboardSetup", in: app)
+        app.buttons["tryKeyboard"].tap()
+        XCTAssertTrue(app.textViews["trialInput"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        app.buttons["finishTrial"].tap()
+        XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 6))
+        XCTAssertFalse(app.textViews["trialInput"].exists)
+    }
+
+    func testKeyboardKeysManagementAndHistoryAcrossHosts() {
         enableKeyboard()
         fixture.launch()
-        copyInFixture("text")
-        fixture.textViews["input"].tap()
-        selectClipboard(in: fixture, expecting: fixture.buttons[text])
-        // The main app can read only the new image from the system pasteboard.
-        copyInFixture("image")
-        app.activate()
-        let main = app.buttons["pairMain"]
-        selectClipboard(in: app, expecting: main)
-        let keyboard = app.buttons["pairKeyboard"]
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 6), app.debugDescription)
-        let code = String(main.label.suffix(6))
-        XCTAssertTrue(code.count == 6 && code.allSatisfy(\.isNumber))
-        XCTAssertTrue(keyboard.label.hasSuffix(code))
-        let row = app.buttons.matching(identifier: "historyText").matching(NSPredicate(format: "label == %@", text)).firstMatch
-        XCTAssertFalse(row.exists)
-        main.tap()
-        keyboard.tap()
-        let finished = app.descendants(matching: .any).matching(identifier: "keyboardSynced").firstMatch
-        XCTAssertTrue(waitFor(finished), app.debugDescription)
-        XCTAssertTrue(waitFor(row), app.debugDescription)
-        fixture.launch()
-        fixture.buttons["Check clipboard image"].tap()
-        XCTAssertEqual(fixture.staticTexts["copyStatus"].label, "Image still on clipboard", fixture.debugDescription)
         copyInFixture("second")
-        fixture.textViews["input"].tap()
-        let second = "Saved while the main app was closed"
-        selectClipboard(in: fixture, expecting: fixture.buttons[second])
-        copyInFixture("image")
-        app.activate()
-        // Transfer must start on foreground activation. The system globe is the only fallback
-        // if UIKit picked a different keyboard; a second pairing or sync button tap would fail.
-        let automatic = selectClipboard(in: app, expecting: finished)
-        XCTContext.runActivity(named: automatic ? "Foreground sync completed without a tap" : "Foreground sync completed after selecting Clipboard with the globe") { _ in }
-        let secondRow = app.buttons.matching(identifier: "historyText").matching(NSPredicate(format: "label == %@", second)).firstMatch
-        XCTAssertTrue(waitFor(secondRow), app.debugDescription)
-        XCTAssertFalse(main.exists)
-        app.terminate()
-        app.launch()
-        let cold = selectClipboard(in: app, expecting: finished)
-        XCTContext.runActivity(named: cold ? "Cold launch synchronized without a tap" : "Cold launch synchronized after selecting Clipboard with the globe") { _ in }
-        XCTAssertTrue(secondRow.exists)
-    }
+        let input = fixture.textViews["input"]
+        input.tap()
+        let short = historyKey("短句", in: fixture)
+        selectClipboard(in: fixture, expecting: short)
+        tapTrailingEdge(short, in: fixture)
+        XCTAssertEqual(input.value as? String, "短句")
+        fixture.buttons["keyboardSpace"].tap()
+        tapTrailingEdge(short, in: fixture)
+        fixture.buttons["keyboardBackspace"].tap()
+        fixture.buttons["keyboardReturn"].tap()
+        XCTAssertEqual(input.value as? String, "短句 短\n", fixture.debugDescription)
 
-    func testManagementWithAnotherAppsPasteboard() {
-        app.launch()
-        app.buttons["openSettings"].tap()
-        app.buttons["clearHistory"].tap()
-        app.alerts.buttons["确认清空"].tap()
-        app.buttons["closeSettings"].tap()
-        fixture.launch()
         copyInFixture("text")
-        app.activate()
-        let row = label(text, in: app)
-        XCTAssertTrue(waitFor(row), app.debugDescription)
-        row.press(forDuration: 0.9)
-        XCTAssertTrue(app.buttons["closePreview"].waitForExistence(timeout: 4))
-        XCTAssertTrue(label(text, in: app).exists)
-        app.buttons["closePreview"].tap()
-        fixture.launch()
+        XCTAssertTrue(waitFor(historyKey(text, in: fixture)), fixture.debugDescription)
         copyInFixture("image")
+        let picture = historyKey("图片", in: fixture)
+        XCTAssertTrue(waitFor(picture), fixture.debugDescription)
+        screenshot("ClipboardKeyboard", in: fixture)
+        tapTrailingEdge(picture, in: fixture)
+        fixture.buttons["Check clipboard image"].tap()
+        XCTAssertEqual(fixture.staticTexts["copyStatus"].label, "Image still on clipboard")
+
         app.activate()
-        let picture = app.buttons["historyImage"].firstMatch
-        XCTAssertTrue(waitFor(picture), app.debugDescription)
-        picture.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 1)
-        XCTAssertTrue(app.navigationBars["图片预览"].waitForExistence(timeout: 6), app.debugDescription)
-        app.buttons["closePreview"].tap()
-        let topEntry = app.buttons.matching(NSPredicate(format: "identifier IN %@", ["historyImage", "historyText"])).firstMatch
-        XCTAssertEqual(topEntry.identifier, "historyImage", app.debugDescription)
-        row.tap()
-        let recopied = XCTNSPredicateExpectation(predicate: NSPredicate(format: "identifier == 'historyText'"), object: topEntry)
-        XCTAssertEqual(XCTWaiter.wait(for: [recopied], timeout: 8), .completed, app.debugDescription)
-        row.swipeLeft()
-        app.buttons["删除"].tap()
-        XCTAssertFalse(row.exists)
-        app.buttons["openSettings"].tap()
-        XCTAssertTrue(app.switches["autoSwitch"].exists)
-        let autoSwitch = app.switches["autoSwitch"]
-        let previous = autoSwitch.value as? String
-        tapSwitch(autoSwitch)
-        XCTAssertNotEqual(autoSwitch.value as? String, previous)
-        app.buttons["clearHistory"].tap()
-        let cancel = app.alerts.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"])).firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 4), app.debugDescription)
-        cancel.tap()
-        app.buttons["closeSettings"].tap()
-        XCTAssertTrue(picture.exists)
-        app.buttons["openSettings"].tap()
-        app.buttons["clearHistory"].tap()
-        app.buttons["确认清空"].tap()
-        app.buttons["closeSettings"].tap()
-        XCTAssertTrue(label("暂无历史记录", in: app).waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1.5))
+        app.buttons["tryKeyboard"].tap()
+        let trialKey = historyKey("短句", in: app)
+        selectClipboard(in: app, expecting: trialKey)
+        tapTrailingEdge(trialKey, in: app)
+        XCTAssertEqual(app.textViews["trialInput"].value as? String, "短句")
+        app.buttons["editHistory"].tap()
+        let toDelete = historyKey("短句", in: app, editing: true)
+        tapTrailingEdge(toDelete, in: app)
+        XCTAssertTrue(toDelete.waitForNonExistence(timeout: 5))
+        app.buttons["closeKeyboardPanel"].tap()
+        app.buttons["keyboardSettings"].tap()
+        let toggle = app.switches["autoSwitch"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 6), app.debugDescription)
+        let before = toggle.value as? String
+        tapSwitch(toggle)
+        let after = toggle.value as? String
+        XCTAssertNotEqual(before, after)
+        app.buttons["7 天"].tap()
+        screenshot("ClipboardKeyboardSettings", in: app)
+        app.buttons["finishTrial"].tap()
         app.terminate()
         app.launch()
-        XCTAssertTrue(label("暂无历史记录", in: app).waitForExistence(timeout: 6))
+        XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 6))
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1.5))
+
+        fixture.launch()
+        fixture.textViews["input"].tap()
+        selectClipboard(in: fixture, expecting: historyKey("图片", in: fixture))
+        XCTAssertFalse(short.exists)
+        fixture.buttons["keyboardSettings"].tap()
+        XCTAssertEqual(fixture.switches["autoSwitch"].value as? String, after)
+        XCTAssertTrue(fixture.buttons["7 天"].isSelected)
+        fixture.buttons["clearHistory"].tap()
+        fixture.buttons["cancelClear"].tap()
+        fixture.buttons["closeKeyboardPanel"].tap()
+        XCTAssertTrue(picture.exists)
+        fixture.buttons["keyboardSettings"].tap()
+        fixture.buttons["clearHistory"].tap()
+        fixture.buttons["confirmClear"].tap()
+        fixture.buttons["closeKeyboardPanel"].tap()
+        XCTAssertTrue(waitFor(label("暂无历史记录", in: fixture)), fixture.debugDescription)
         XCTAssertFalse(picture.exists)
     }
 }

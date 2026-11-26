@@ -9,8 +9,8 @@ settings:
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1,2"
     SUPPORTS_MACCATALYST: NO
-    MARKETING_VERSION: 1.0.4
-    CURRENT_PROJECT_VERSION: 4
+    MARKETING_VERSION: 1.1.0
+    CURRENT_PROJECT_VERSION: 5
     CLIPBOARD_BUNDLE_ID: net.chkf.Clipboard
     CLIPBOARD_APP_GROUP: group.$(CLIPBOARD_BUNDLE_ID)
     CODE_SIGN_STYLE: Automatic
@@ -18,7 +18,7 @@ targets:
   Clipboard:
     type: application
     platform: iOS
-    sources: [App, Shared, Resources]
+    sources: [App, Shared/ClipboardInputMode.swift, Resources]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(CLIPBOARD_BUNDLE_ID)
@@ -28,7 +28,6 @@ targets:
     dependencies:
       - target: ClipboardKeyboard
         embed: true
-      - sdk: libsqlite3.tbd
   ClipboardKeyboard:
     type: app-extension
     platform: iOS
@@ -45,13 +44,14 @@ targets:
   ClipboardTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [Tests]
+    sources: [Tests, Shared]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(CLIPBOARD_BUNDLE_ID).tests
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: Clipboard
+      - sdk: libsqlite3.tbd
   ClipboardUITests:
     type: bundle.ui-testing
     platform: iOS

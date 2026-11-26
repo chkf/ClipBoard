@@ -1,6 +1,5 @@
 import Foundation
 import XCTest
-@testable import Clipboard
 
 final class HistoryContainerTests: XCTestCase {
     private let configured = "group.net.chkf.Clipboard"
@@ -36,8 +35,7 @@ final class HistoryContainerTests: XCTestCase {
             XCTAssertThrowsError(try HistoryContainer.url(for: host))
             XCTAssertThrowsError(try HistoryContainer.url(for: keyboard))
             let store = try await HistoryStore.shared()
-            let directory = await store.privateDirectory
-            XCTAssertNotNil(directory)
+            _ = try await store.state()
             return
         }
         let provisioned = host.object(forInfoDictionaryKey: "ALTAppGroups") as? [String]

@@ -2,7 +2,6 @@ import ImageIO
 import UIKit
 import UniformTypeIdentifiers
 import XCTest
-@testable import Clipboard
 
 final class HistoryTests: XCTestCase {
     private var directory: URL!

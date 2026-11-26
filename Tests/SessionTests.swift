@@ -1,6 +1,5 @@
 import UIKit
 import XCTest
-@testable import Clipboard
 
 @MainActor
 final class SessionTests: XCTestCase {
@@ -17,12 +16,12 @@ final class SessionTests: XCTestCase {
         defer { session.stop(); try? FileManager.default.removeItem(at: directory) }
         let text = "  line one\nline two\nline three\n"
         UIPasteboard.general.string = text
-        session.start(.app)
+        session.start(fullAccess: true)
         try await eventually { session.rows.first?.preview == text }
         let initial = try XCTUnwrap(session.rows.first)
         session.stop()
-        session.start(.keyboard(fullAccess: true))
-        try await eventually { session.loaded && session.settings.keyboardConfigured }
+        session.start(fullAccess: true)
+        try await eventually { session.loaded }
         XCTAssertEqual(initial, session.rows.first)
         var inserted = "", switches = 0
         await session.selectInKeyboard(initial, insert: { inserted = $0 }, advance: { switches += 1 })
@@ -50,12 +49,12 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(copied.first?.id, item.id)
         XCTAssertGreaterThan(try XCTUnwrap(copied.first?.updated), item.updated)
         session.stop()
-        session.start(.app)
+        session.start(fullAccess: true)
         try await eventually { session.loaded }
         XCTAssertEqual(session.rows, copied)
         await session.edit { try await $0.delete() }
         session.stop()
-        session.start(.app)
+        session.start(fullAccess: true)
         try await eventually { session.loaded }
         XCTAssertTrue(session.rows.isEmpty)
         XCTAssertEqual(UIPasteboard.general.data(forPasteboardType: "public.png"), png)
@@ -63,7 +62,7 @@ final class SessionTests: XCTestCase {
         UIPasteboard.general.string = "while inactive"
         try await Task.sleep(for: .milliseconds(1250))
         XCTAssertTrue(session.rows.isEmpty)
-        session.start(.app)
+        session.start(fullAccess: true)
         try await eventually { session.rows.first?.preview == "while inactive" }
         let lastCopy = try await store.state().event
         UIPasteboard.general.items = []
@@ -82,7 +81,7 @@ final class SessionTests: XCTestCase {
         let session = ClipboardSession(keyboardAccess: { fullAccess }, open: { readOnly in readOnly ? reader : store })
         defer { session.stop(); try? FileManager.default.removeItem(at: directory) }
         UIPasteboard.general.string = "must not capture"
-        session.start(.keyboard(fullAccess: false))
+        session.start(fullAccess: false)
         try await eventually { session.loaded }
         let row = try XCTUnwrap(session.rows.first)
         var inserted = ""
@@ -94,9 +93,9 @@ final class SessionTests: XCTestCase {
         let rows = try await store.page()
         XCTAssertEqual(rows.map(\.preview), [text])
         fullAccess = true
-        try await eventually { session.mode.mayWrite && session.rows.first?.preview == "must not capture" }
+        try await eventually { session.fullAccess && session.rows.first?.preview == "must not capture" }
         fullAccess = false
-        try await eventually { !session.mode.mayWrite && session.loaded }
+        try await eventually { !session.fullAccess && session.loaded }
         UIPasteboard.general.string = "after revocation"
         XCTAssertFalse(session.rows.contains { $0.preview == "after revocation" })
     }

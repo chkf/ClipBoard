@@ -61,7 +61,6 @@ struct HistorySettings: Equatable {
     static let durations = [7, 15, 30, 90]
     var retention = 30
     var autoSwitch = false
-    var keyboardConfigured = false
 }
 
 struct HistoryState {
@@ -71,9 +70,7 @@ struct HistoryState {
 }
 
 actor HistoryStore {
-    let db: Database
-    let readOnly: Bool
-    let privateDirectory: URL?
+    private let db: Database
 
     static func shared(readOnly: Bool = false) async throws -> HistoryStore {
         do {
@@ -83,13 +80,11 @@ actor HistoryStore {
             let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                     appropriateFor: nil, create: !readOnly)
             return try HistoryStore(directory: root.appendingPathComponent("ClipboardHistory", isDirectory: true),
-                                    readOnly: readOnly, privateStorage: true)
+                                    readOnly: readOnly)
         }
     }
 
-    init(directory: URL, readOnly: Bool = false, privateStorage: Bool = false) throws {
-        self.readOnly = readOnly
-        self.privateDirectory = privateStorage ? directory : nil
+    init(directory: URL, readOnly: Bool = false) throws {
         if !readOnly {
             var folder = directory
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
@@ -122,28 +117,15 @@ actor HistoryStore {
                     revision INTEGER NOT NULL DEFAULT 0, boot REAL, counter INTEGER, last_key TEXT)
                 """)
             try database.execute("INSERT OR IGNORE INTO state(id) VALUES(1)")
-            if privateStorage {
-                try database.execute("""
-                    CREATE TABLE IF NOT EXISTS replica (id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL,
-                      cleared REAL NOT NULL DEFAULT 0, peer TEXT, seen INTEGER NOT NULL DEFAULT -1)
-                """)
-                try database.execute("INSERT OR IGNORE INTO replica(id,identity) VALUES(1,?)", [.text(UUID().uuidString)])
-                try database.execute("CREATE TABLE IF NOT EXISTS removed (content_key TEXT PRIMARY KEY, deleted REAL NOT NULL)")
-                try database.execute("""
-                    CREATE TABLE IF NOT EXISTS copy_events (content_key TEXT PRIMARY KEY, boot REAL NOT NULL,
-                      counter INTEGER NOT NULL, copied REAL NOT NULL)
-                    """)
-            }
         }
     }
 
     func state() throws -> HistoryState {
-        let result = try db.query("SELECT days,auto_switch,configured,revision,boot,counter,last_key FROM state WHERE id=1") { row in
-            let settings = HistorySettings(retention: row.integer(0), autoSwitch: row.integer(1) != 0,
-                                           keyboardConfigured: row.integer(2) != 0)
-            let stamp = PasteStamp(boot: row.real(4), count: row.integer(5))
-            let event = row.isNull(5) ? nil : PasteEvent(stamp: stamp, key: row.isNull(6) ? nil : row.text(6))
-            return HistoryState(settings: settings, revision: row.integer(3), event: event)
+        let result = try db.query("SELECT days,auto_switch,revision,boot,counter,last_key FROM state WHERE id=1") { row in
+            let settings = HistorySettings(retention: row.integer(0), autoSwitch: row.integer(1) != 0)
+            let stamp = PasteStamp(boot: row.real(3), count: row.integer(4))
+            let event = row.isNull(4) ? nil : PasteEvent(stamp: stamp, key: row.isNull(5) ? nil : row.text(5))
+            return HistoryState(settings: settings, revision: row.integer(2), event: event)
         }
         guard let state = result.first else { throw HistoryError.database(11) }
         return state
@@ -183,14 +165,6 @@ actor HistoryStore {
             let uncertain = previous.map { !stamp.sameBoot(as: $0.stamp) || stamp.count < $0.stamp.count } ?? false
             if let clip, !uncertain || previous?.key != clip.key {
                 let timestamp = now.timeIntervalSince1970
-                if privateDirectory != nil {
-                    // The other process can encounter the same system pasteboard event much later.
-                    let seen = try db.query("SELECT boot,counter FROM copy_events WHERE content_key=?", [.text(clip.key)]) {
-                        PasteStamp(boot: $0.real(0), count: $0.integer(1))
-                    }.first
-                    if seen == stamp { try remember(stamp, key: clip.key); return }
-                    try recordCopyEvent(stamp, key: clip.key, timestamp: timestamp)
-                }
                 let id = UUID().uuidString
                 if try db.execute("UPDATE clips SET updated=? WHERE content_key=?", [.real(timestamp), .text(clip.key)]) == 0 {
                     try db.execute("INSERT INTO clips VALUES(?,?,?,?,?,?)", [
@@ -215,7 +189,6 @@ actor HistoryStore {
             guard let key = try db.query("SELECT content_key FROM clips WHERE id=?", [.text(id)], map: { $0.text(0) }).first
             else { throw HistoryError.missing }
             let stamp = try write(body)
-            if privateDirectory != nil { try recordCopyEvent(stamp, key: key, timestamp: now.timeIntervalSince1970) }
             try db.execute("UPDATE clips SET updated=? WHERE id=?", [.real(now.timeIntervalSince1970), .text(id)])
             try remember(stamp, key: key)
             try bumpRevision()
@@ -227,57 +200,25 @@ actor HistoryStore {
                        [.real(stamp.boot), .integer(stamp.count), key.map(SQLValue.text) ?? .null])
     }
 
-    private func recordCopyEvent(_ stamp: PasteStamp, key: String, timestamp: Double) throws {
-        try db.execute("INSERT OR REPLACE INTO copy_events(content_key,boot,counter,copied) VALUES(?,?,?,?)",
-                       [.text(key), .real(stamp.boot), .integer(stamp.count), .real(timestamp)])
-    }
-
     private func bumpRevision() throws {
         try db.execute("UPDATE state SET revision=revision+1 WHERE id=1")
     }
 
-    func delete(_ id: String? = nil, now: Date = Date()) throws {
+    func delete(_ id: String? = nil) throws {
         try db.transaction {
-            if let id {
-                if privateDirectory != nil {
-                    try db.execute("""
-                        INSERT INTO removed SELECT content_key,max(updated,?) FROM clips WHERE id=?
-                        ON CONFLICT(content_key) DO UPDATE SET deleted=max(removed.deleted,excluded.deleted)
-                        """, [.real(now.timeIntervalSince1970), .text(id)])
-                }
-                try db.execute("DELETE FROM clips WHERE id=?", [.text(id)])
-            } else {
-                if privateDirectory != nil {
-                    try db.execute("UPDATE replica SET cleared=max(cleared,?,coalesce((SELECT max(updated) FROM clips),0))",
-                                   [.real(now.timeIntervalSince1970)])
-                    try db.execute("DELETE FROM removed WHERE deleted<=(SELECT cleared FROM replica)")
-                }
-                try db.execute("DELETE FROM clips")
-            }
+            if let id { try db.execute("DELETE FROM clips WHERE id=?", [.text(id)]) }
+            else { try db.execute("DELETE FROM clips") }
             try bumpRevision()
         }
     }
 
     private func expire(days: Int, now: Date) throws {
         let cutoff = now.timeIntervalSince1970 - Double(days) * 86_400
-        if privateDirectory != nil {
-            try db.execute("""
-                INSERT INTO removed SELECT content_key,updated FROM clips WHERE updated<=?
-                ON CONFLICT(content_key) DO UPDATE SET deleted=max(removed.deleted,excluded.deleted)
-                """, [.real(cutoff)])
-        }
         if try db.execute("DELETE FROM clips WHERE updated<=?", [.real(cutoff)]) > 0 { try bumpRevision() }
     }
 
     func prune(now: Date = Date()) throws {
-        try db.transaction {
-            try expire(days: state().settings.retention, now: now)
-            if privateDirectory != nil {
-                let cutoff = SQLValue.real(now.timeIntervalSince1970 - 90 * 86_400)
-                try db.execute("DELETE FROM copy_events WHERE copied<=?", [cutoff])
-                try db.execute("DELETE FROM removed WHERE deleted<=?", [cutoff])
-            }
-        }
+        try db.transaction { try expire(days: state().settings.retention, now: now) }
     }
 
     func retention(_ days: Int, now: Date = Date()) throws {
@@ -292,7 +233,4 @@ actor HistoryStore {
         try db.execute("UPDATE state SET auto_switch=?,revision=revision+1 WHERE id=1", [.integer(on ? 1 : 0)])
     }
 
-    func keyboardConfigured() throws {
-        try db.execute("UPDATE state SET configured=1,revision=revision+1 WHERE id=1 AND configured=0")
-    }
 }

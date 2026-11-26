@@ -3,7 +3,6 @@ import SwiftUI
 struct ClipLabel: View {
     let row: ClipRow
     let session: ClipboardSession
-    var compact = false
     @State private var thumbnail: UIImage?
 
     var body: some View {
@@ -16,8 +15,7 @@ struct ClipLabel: View {
                         Image(systemName: "photo").foregroundStyle(.secondary)
                     }
                 }
-                .frame(height: compact ? 52 : 86)
-                .frame(maxWidth: 220, alignment: .leading)
+                .frame(height: 42, alignment: .leading)
                 .accessibilityLabel("图片")
                 .task(id: row.id) {
                     thumbnail = nil
@@ -26,11 +24,10 @@ struct ClipLabel: View {
                 }
             } else {
                 Text(verbatim: row.preview)
-                    .lineLimit(compact ? 2 : 3)
+                    .font(.body).lineLimit(2)
                     .multilineTextAlignment(.leading)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 32 : 40, alignment: .leading)
-        .contentShape(Rectangle())
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

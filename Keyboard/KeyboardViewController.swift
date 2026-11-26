@@ -2,143 +2,133 @@ import SwiftUI
 import UIKit
 
 final class KeyboardViewController: UIInputViewController {
-    private lazy var session = ClipboardSession(keyboardAccess: { [weak self] in self?.hasFullAccess ?? false },
-                                                syncInvitation: { [weak self] in self?.syncInvitation() })
-
-    private func syncInvitation() -> SyncInvitation? {
-        let proxy = textDocumentProxy
-        let contentType: UITextContentType? = proxy.textContentType ?? nil
-        if let offer = SyncInvitation(contentType?.rawValue) { return offer }
-        // Some input hosts omit custom text-content types. Only examine the selected sync marker,
-        // never the typed text before or after the cursor.
-        guard proxy.keyboardType == .default, proxy.returnKeyType == .join, proxy.autocorrectionType == .no else { return nil }
-        return SyncInvitation(proxy.selectedText)
-    }
+    private lazy var session = ClipboardSession(keyboardAccess: { [weak self] in self?.hasFullAccess ?? false })
     private let globe = UIButton(type: .system)
+    private let returnKey = UIButton(type: .system)
     private var height: NSLayoutConstraint?
     private var visible = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        let list = KeyboardHistory(session: session) { [weak self] row in
+        let history = KeyboardHistory(session: session) { [weak self] row in
             guard let self else { return }
             Task {
                 if row.isImage && !self.hasFullAccess { return }
                 await self.session.selectInKeyboard(row, insert: { self.textDocumentProxy.insertText($0) },
-                                                    advance: { self.advanceToNextInputMode() })
+                                                   advance: { self.advanceToNextInputMode() })
             }
         }
-        let host = UIHostingController(rootView: list)
+        let host = UIHostingController(rootView: history)
         addChild(host)
         host.view.backgroundColor = .clear
-        globe.setImage(UIImage(systemName: "globe"), for: .normal)
-        globe.tintColor = .label
-        globe.accessibilityLabel = "切换键盘"
+
+        let space = UIButton(type: .system)
+        let erase = UIButton(type: .system)
+        configure(globe, symbol: "globe", label: "切换键盘", id: "nextKeyboard")
+        configure(space, title: "空格", label: "空格", id: "keyboardSpace")
+        configure(erase, symbol: "delete.left", label: "退格", id: "keyboardBackspace")
+        configure(returnKey, title: "换行", label: "换行", id: "keyboardReturn")
         globe.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
-        let switchRow = UIStackView(arrangedSubviews: [globe, UIView()])
-        switchRow.isHidden = !needsInputModeSwitchKey
-        let column = UIStackView(arrangedSubviews: [host.view, switchRow])
+        space.addAction(UIAction { [weak self] _ in self?.textDocumentProxy.insertText(" ") }, for: .touchUpInside)
+        erase.addAction(UIAction { [weak self] _ in self?.textDocumentProxy.deleteBackward() }, for: .touchUpInside)
+        returnKey.addAction(UIAction { [weak self] _ in self?.textDocumentProxy.insertText("\n") }, for: .touchUpInside)
+        globe.isHidden = !needsInputModeSwitchKey
+
+        let commands = UIStackView(arrangedSubviews: [globe, space, erase, returnKey])
+        commands.spacing = 6
+        let column = UIStackView(arrangedSubviews: [host.view, commands])
         column.axis = .vertical
+        column.spacing = 6
         column.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = KeyboardPalette.tray
         view.addSubview(column)
         NSLayoutConstraint.activate([
-            column.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-            column.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            column.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 6),
+            column.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -6),
             column.topAnchor.constraint(equalTo: view.topAnchor),
-            column.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            globe.widthAnchor.constraint(equalToConstant: 52)
+            column.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -5),
+            commands.heightAnchor.constraint(equalToConstant: 45),
+            erase.widthAnchor.constraint(equalToConstant: 54),
+            returnKey.widthAnchor.constraint(equalToConstant: 84)
         ])
-        let globeHeight = globe.heightAnchor.constraint(equalToConstant: 44)
-        globeHeight.priority = .defaultHigh
-        globeHeight.isActive = true
-        height = view.heightAnchor.constraint(equalToConstant: 252)
+        let globeWidth = globe.widthAnchor.constraint(equalToConstant: 48)
+        globeWidth.priority = .defaultHigh
+        globeWidth.isActive = true
+        height = view.heightAnchor.constraint(equalToConstant: 278)
         height?.priority = UILayoutPriority(999)
         height?.isActive = true
         host.didMove(toParent: self)
         NotificationCenter.default.addObserver(self, selector: #selector(hostBackground),
-                                                name: .NSExtensionHostDidEnterBackground, object: nil)
+                                               name: .NSExtensionHostDidEnterBackground, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(hostInactive),
-                                                name: .NSExtensionHostWillResignActive, object: nil)
+                                               name: .NSExtensionHostWillResignActive, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(hostActive),
-                                                name: .NSExtensionHostDidBecomeActive, object: nil)
+                                               name: .NSExtensionHostDidBecomeActive, object: nil)
+    }
+
+    private func configure(_ button: UIButton, title: String? = nil, symbol: String? = nil, label: String, id: String) {
+        var config = UIButton.Configuration.plain()
+        config.title = title
+        config.image = symbol.flatMap { UIImage(systemName: $0) }
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular)
+        config.baseForegroundColor = .label
+        config.cornerStyle = .fixed
+        config.background.cornerRadius = 8
+        config.background.backgroundColor = KeyboardPalette.key
+        button.configuration = config
+        button.configurationUpdateHandler = { key in
+            key.configuration?.background.backgroundColor = key.isHighlighted ? KeyboardPalette.pressed : KeyboardPalette.key
+        }
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.18
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.layer.shadowRadius = 0
+        button.accessibilityLabel = label
+        button.accessibilityIdentifier = id
+    }
+
+    private func updateReturnKey() {
+        let title: String
+        switch textDocumentProxy.returnKeyType ?? .default {
+        case .done: title = "完成"
+        case .send: title = "发送"
+        case .search, .google, .yahoo: title = "搜索"
+        case .go: title = "前往"
+        case .next: title = "下一项"
+        case .join: title = "加入"
+        case .continue: title = "继续"
+        default: title = "换行"
+        }
+        if returnKey.configuration?.title != title {
+            returnKey.configuration?.title = title
+            returnKey.accessibilityLabel = title
+        }
+    }
+
+    override func textDidChange(_ textInput: UITextInput?) {
+        super.textDidChange(textInput)
+        updateReturnKey()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         visible = true
+        updateReturnKey()
         hostActive()
     }
-
     override func viewWillDisappear(_ animated: Bool) {
         visible = false
         session.stop()
         super.viewWillDisappear(animated)
     }
-
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        globe.superview?.isHidden = !needsInputModeSwitchKey
-        height?.constant = traitCollection.verticalSizeClass == .compact ? 178 : 252
+        globe.isHidden = !needsInputModeSwitchKey
+        height?.constant = traitCollection.verticalSizeClass == .compact ? 210 : 278
     }
-
     @objc private func hostActive() {
-        if visible { session.start(.keyboard(fullAccess: hasFullAccess)) }
+        if visible { session.start(fullAccess: hasFullAccess) }
     }
     @objc private func hostInactive() { session.active = false }
     @objc private func hostBackground() { session.stop() }
-}
-
-private struct KeyboardHistory: View {
-    @ObservedObject var session: ClipboardSession
-    let select: (ClipRow) -> Void
-    @State private var showCopied = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            KeyboardSyncStatus(sync: session.sync)
-            if !session.mode.mayWrite {
-                Text("在系统键盘设置中允许完全访问，以收集剪贴板和复制图片。")
-                    .font(.footnote).foregroundStyle(.secondary).padding(8)
-            } else if let message = session.message {
-                Text(message).font(.footnote).foregroundStyle(.secondary).padding(8)
-            } else if showCopied {
-                Text("图片已复制，可在输入框中粘贴").font(.footnote).padding(8)
-            }
-            if session.rows.isEmpty {
-                Text("暂无历史记录").foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(session.rows) { row in
-                    Button { select(row) } label: { ClipLabel(row: row, session: session, compact: true) }
-                        .buttonStyle(.plain)
-                        .disabled(row.isImage && !session.mode.mayWrite)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .task { await session.nextPage(after: row) }
-                }
-                .listStyle(.plain).scrollContentBackground(.hidden)
-            }
-        }
-        .task(id: session.copied) {
-            guard session.copied > 0 else { return }
-            showCopied = true
-            try? await Task.sleep(for: .seconds(2))
-            if !Task.isCancelled { showCopied = false }
-        }
-    }
-}
-
-private struct KeyboardSyncStatus: View {
-    @ObservedObject var sync: ForegroundHistorySync
-    var body: some View {
-        switch sync.phase {
-        case .pairing(let code):
-            Button("配对键盘 · " + code) { sync.approve() }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("pairKeyboard")
-        case .transferring:
-            ProgressView("正在同步历史").font(.footnote)
-        default: EmptyView()
-        }
-    }
 }
