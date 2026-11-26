@@ -39,7 +39,7 @@ struct FixtureApp: App {
                 }
                 Text(verbatim: copyStatus).accessibilityIdentifier("copyStatus")
                 if ProcessInfo.processInfo.arguments.contains("-MeasureKeyboardSwitch") {
-                    Button("Track keyboard") { measure = true }
+                    Button(measure ? "Finish measurement" : "Track keyboard") { measure.toggle() }
                     KeyboardFrameProbe(measure: measure).frame(width: 2, height: 2)
                         .accessibilityIdentifier("keyboardTravel")
                 }
@@ -49,6 +49,14 @@ struct FixtureApp: App {
             .padding()
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topTrailing) {
+                if measure {
+                    // Identify the measured handoff in the simulator's screen recording.
+                    Color(red: 1, green: 0, blue: 1).frame(width: 54, height: 8)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
         }
     }
 

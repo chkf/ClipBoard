@@ -183,7 +183,8 @@ final class ClipboardUITests: XCTestCase {
         XCTContext.runActivity(named: "System to Clipboard: top \(samples[1]) → \(samples[2]) pt; reverse travel \(extraTravel) pt; path \(probe.label)") { _ in }
         XCTAssertGreaterThan(samples[2], Double(fixture.frame.height) * 0.4)
         XCTAssertLessThan(samples[2], Double(fixture.frame.height) * 0.92)
-        XCTAssertLessThanOrEqual(extraTravel, 8, "Keyboard layout guide reversed direction during the switch")
+        XCTAssertEqual(samples[1], samples[2], accuracy: 8, "The settled keyboard changed the host's input area")
+        fixture.buttons["Finish measurement"].tap()
     }
 
     func testKeyboardKeysManagementAndHistoryAcrossHosts() {

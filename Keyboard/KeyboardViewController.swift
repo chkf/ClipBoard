@@ -2,21 +2,18 @@ import SwiftUI
 import UIKit
 
 private final class HistoryInputView: UIInputView {
-    // Set the fitting height before UIKit asks for the first animation frame.
-    // A scroll view has no intrinsic height, even when it has many history rows.
-    func fit(to traits: UITraitCollection) {
-        let height: CGFloat = traits.verticalSizeClass == .compact ? 162 : traits.userInterfaceIdiom == .pad ? 264 : 243
-        if let heightRequest {
-            if heightRequest.constant != height { heightRequest.constant = height }
-        } else {
-            let request = heightAnchor.constraint(equalToConstant: height)
-            request.priority = UILayoutPriority(999)
-            request.isActive = true
-            heightRequest = request
-        }
+    static func height(for traits: UITraitCollection) -> CGFloat {
+        if traits.verticalSizeClass == .compact { return 162 }
+        return traits.userInterfaceIdiom == .pad ? 264 : 243
     }
 
-    private var heightRequest: NSLayoutConstraint?
+    var panelHeight: CGFloat = 243 {
+        didSet { if oldValue != panelHeight { invalidateIntrinsicContentSize() } }
+    }
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: panelHeight) }
+    override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
+        CGSize(width: super.systemLayoutSizeFitting(targetSize).width, height: panelHeight)
+    }
 }
 
 final class KeyboardViewController: UIInputViewController {
@@ -25,21 +22,29 @@ final class KeyboardViewController: UIInputViewController {
     private let returnKey = UIButton(type: .system)
     private let commands = UIStackView()
     private var commandsHeight: NSLayoutConstraint?
+    private let surface = UIView()
+    private var rootHeight: NSLayoutConstraint?
+    private var surfaceHeight: NSLayoutConstraint?
     private let settingsSpacer = UIView()
     private let presentation = KeyboardPresentation()
     private var visible = false
 
     override func loadView() {
-        let panel = HistoryInputView(frame: .zero, inputViewStyle: .keyboard)
+        let height = HistoryInputView.height(for: traitCollection)
+        let panel = HistoryInputView(frame: CGRect(x: 0, y: 0, width: 0, height: height), inputViewStyle: .default)
         panel.allowsSelfSizing = true
-        panel.fit(to: traitCollection)
+        panel.panelHeight = height
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.clipsToBounds = true
         view = panel
+        preferredContentSize = CGSize(width: 0, height: height)
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         registerForTraitChanges([UITraitVerticalSizeClass.self]) { (controller: KeyboardViewController, _: UITraitCollection) in
-            (controller.view as? HistoryInputView)?.fit(to: controller.traitCollection)
+            controller.updatePanelHeight()
         }
         let history = KeyboardHistory(session: session, presentation: presentation) { [weak self] row in
             guard let self else { return }
@@ -71,15 +76,30 @@ final class KeyboardViewController: UIInputViewController {
         [globe, space, erase, returnKey, settingsSpacer].forEach { commands.addArrangedSubview($0) }
         commands.spacing = 6
         commands.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = KeyboardPalette.tray
-        view.addSubview(host.view)
-        view.addSubview(commands)
+        // UIKit can lend a new extension an oversized frame for one display refresh.
+        // Keep the keycaps at their final distance from the bottom throughout the handoff.
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.backgroundColor = KeyboardPalette.tray
+        surface.clipsToBounds = true
+        view.addSubview(surface)
+        surface.addSubview(host.view)
+        surface.addSubview(commands)
+        let height = HistoryInputView.height(for: traitCollection)
+        let request = view.heightAnchor.constraint(equalToConstant: height)
+        request.priority = UILayoutPriority(999)
+        rootHeight = request
+        let surfaceHeight = surface.heightAnchor.constraint(equalToConstant: height)
+        self.surfaceHeight = surfaceHeight
         let content = view.safeAreaLayoutGuide
         let commandsHeight = commands.heightAnchor.constraint(equalToConstant: 45)
         commandsHeight.isActive = true
         self.commandsHeight = commandsHeight
         NSLayoutConstraint.activate([
-            host.view.topAnchor.constraint(equalTo: view.topAnchor),
+            request, surfaceHeight,
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            host.view.topAnchor.constraint(equalTo: surface.topAnchor),
             host.view.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 6),
             host.view.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -6),
             host.view.bottomAnchor.constraint(equalTo: commands.topAnchor, constant: -6),
@@ -99,6 +119,15 @@ final class KeyboardViewController: UIInputViewController {
                                                name: .NSExtensionHostWillResignActive, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(hostActive),
                                                name: .NSExtensionHostDidBecomeActive, object: nil)
+    }
+
+    private func updatePanelHeight() {
+        let height = HistoryInputView.height(for: traitCollection)
+        guard surfaceHeight?.constant != height else { return }
+        surfaceHeight?.constant = height
+        rootHeight?.constant = height
+        (view as? HistoryInputView)?.panelHeight = height
+        preferredContentSize = CGSize(width: 0, height: height)
     }
 
     private func configure(_ button: UIButton, title: String? = nil, symbol: String? = nil, label: String, id: String) {
