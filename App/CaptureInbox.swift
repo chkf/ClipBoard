@@ -19,7 +19,10 @@ actor CaptureInbox {
         try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "clip" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
-    func acknowledge(_ item: URL) throws { try FileManager.default.removeItem(at: item) }
+    func acknowledge(_ item: URL) throws {
+        do { try FileManager.default.removeItem(at: item) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { return }
+    }
 
     // Large items and older batches stay in the outbox for the streaming transfer.
     func updateMirror() async {

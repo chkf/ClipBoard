@@ -347,11 +347,34 @@ final class ClipboardUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 10))
         let deliver = app.buttons["deliverCopies"]
-        if deliver.waitForExistence(timeout: 3) { deliver.tap(); finishDelivery() }
+        let privateContainers = deliver.waitForExistence(timeout: 3)
+        if privateContainers { deliver.tap(); finishDelivery() }
         fixture.launch()
         fixture.textViews["input"].tap()
         selectClipboard(in: fixture, expecting: historyKey(prefix + "three", in: fixture))
         for word in ["one", "two"] { XCTAssertTrue(historyKey(prefix + word, in: fixture).exists) }
+        if privateContainers {
+            let second = "next-" + prefix
+            app.launchEnvironment["CLIPBOARD_TEST_BATCH"] = second
+            app.launch()
+            XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 12))
+            fixture.activate()
+            if !fixture.buttons["keyboardSpace"].exists { fixture.textViews["input"].tap() }
+            let newest = historyKey(second + "three", in: fixture)
+            if waitFor(newest, seconds: 8) {
+                XCTContext.runActivity(named: "Subsequent local batch arrived automatically in the external keyboard") { _ in }
+            } else {
+                XCTContext.runActivity(named: "Complete the subsequent local batch via the trusted foreground receiver") { _ in }
+                app.activate()
+                XCTAssertTrue(deliver.waitForExistence(timeout: 8), app.debugDescription)
+                deliver.tap()
+                XCTAssertTrue(deliver.waitForNonExistence(timeout: 18))
+                XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 18), app.debugDescription)
+                fixture.activate()
+                if !fixture.buttons["keyboardSpace"].exists { fixture.textViews["input"].tap() }
+            }
+            for word in ["one", "two", "three"] { XCTAssertTrue(waitFor(historyKey(second + word, in: fixture), seconds: 6)) }
+        }
     }
 
     private func finishDelivery() {

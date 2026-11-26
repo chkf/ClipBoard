@@ -106,7 +106,7 @@ import UIKit
         Task {
             await last?.value
             await refreshPending()
-            if ending == sessionID, phase == .idle, !locking, pending > 0,
+            if ending == sessionID, phase == .idle, !locking, pending > 0, !CaptureDelivery.hasDelivered,
                UIApplication.shared.applicationState == .active { showImport = true }
         }
     }

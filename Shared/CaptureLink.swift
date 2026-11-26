@@ -81,9 +81,7 @@ final class CaptureLink: @unchecked Sendable {
         }
         return result
     }
-    func sendFile(_ file: URL) async throws {
-        let input = try FileHandle(forReadingFrom: file)
-        defer { try? input.close() }
+    func sendFile(_ input: FileHandle) async throws {
         while let chunk = try input.read(upToCount: Self.chunk), !chunk.isEmpty { try await send(chunk) }
         try await send(Data())
     }

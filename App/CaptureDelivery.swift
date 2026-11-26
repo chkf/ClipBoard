@@ -4,6 +4,7 @@ import SwiftUI
 import UIKit
 
 @MainActor final class CaptureDelivery: ObservableObject {
+    static var hasDelivered: Bool { UserDefaults.standard.bool(forKey: "KeyboardReceivedCollection") }
     @Published private(set) var ticket: CaptureTicket?
     @Published private(set) var done = false
     @Published private(set) var error: String?
@@ -47,14 +48,19 @@ import UIKit
                             for file in try await CaptureInbox.shared.entries() {
                                 let filename = file.deletingPathExtension().lastPathComponent
                                 guard let dash = filename.firstIndex(of: "-") else { throw HistoryError.unreadable }
+                                let input: FileHandle
+                                do { input = try FileHandle(forReadingFrom: file) }
+                                catch let error as CocoaError where error.code == .fileReadNoSuchFile { continue }
+                                defer { try? input.close() }
                                 let header = Data(filename[filename.index(after: dash)...].utf8)
                                 try await link.send(header)
-                                try await link.sendFile(file)
+                                try await link.sendFile(input)
                                 guard try await link.read() == header else { throw HistoryError.unreadable }
                                 try await CaptureInbox.shared.acknowledge(file)
                             }
                             try await link.send(Data("done".utf8))
                             guard try await link.read() == Data("done".utf8), self.cycle == generation else { return }
+                            UserDefaults.standard.set(true, forKey: "KeyboardReceivedCollection")
                             self.done = true
                         } catch { if self.cycle == generation { self.error = "传送已中断。已保存的条目会保留，点重试可继续。" } }
                     }

@@ -62,9 +62,15 @@ import UIKit
     }
     @MainActor final class Reader {
         private var lastDigest: Data?
+        private var checkedCount: Int?
+        private var checkedAt = Date.distantPast
         func receive(into store: HistoryStore) async throws {
-            guard let key = try CaptureMirror.secret(), let source = board("copies", key: key, create: false),
-                  let encrypted = source.data(forPasteboardType: type), encrypted.count <= 2 * limit else { return }
+            guard let key = try CaptureMirror.secret(), let source = board("copies", key: key, create: false) else { return }
+            let count = source.changeCount
+            guard checkedCount != count || Date().timeIntervalSince(checkedAt) >= 8 else { return }
+            checkedCount = count
+            checkedAt = Date()
+            guard let encrypted = source.data(forPasteboardType: type), encrypted.count <= 2 * limit else { return }
             let digest = Data(SHA256.hash(data: encrypted))
             guard digest != lastDigest else { return }
             let unsealed = try ChaChaPoly.open(ChaChaPoly.SealedBox(combined: encrypted), using: SymmetricKey(data: key),
