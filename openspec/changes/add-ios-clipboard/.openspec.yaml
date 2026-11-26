@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-11-26
+goal: 在 iOS 26 及以上通过主 App 和自定义键盘自动收集、管理和复用本机复制的文本与图片。

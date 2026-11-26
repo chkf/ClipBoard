@@ -1,0 +1,9 @@
+schema: spec-driven
+
+context: |
+  产品范围、系统限制和验收标准见仓库根目录下的 docs/PRD.md。
+  Clipboard 是个人使用的 iOS 26+ 原生剪贴板管理工具，以 IPA 侧载，使用 SwiftUI、UIKit 和系统 Liquid Glass 组件。
+  主 App 负责管理，Keyboard Extension 负责快速复用，两者通过 Shared Core 和 App Groups 共享本地历史、设置及剪贴板变化状态。
+  收集限于主 App 或键盘处于活动状态且系统允许读取的时段。重复观察同一次复制不得更新时间或恢复已删除内容。
+  所有核心功能均可离线使用。使用公开 API 和系统数据保护机制，不接入网络服务、统计、广告或追踪 SDK。
+  SQLite 元数据和共享容器图片文件是推荐方案，持久化细节由后续技术设计确定。

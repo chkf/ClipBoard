@@ -1,0 +1,88 @@
+name: Clipboard
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  developmentLanguage: zh-Hans
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SUPPORTS_MACCATALYST: NO
+    MARKETING_VERSION: 1.0.0
+    CURRENT_PROJECT_VERSION: 1
+    CLIPBOARD_BUNDLE_ID: net.chkf.Clipboard
+    CLIPBOARD_APP_GROUP: group.$(CLIPBOARD_BUNDLE_ID)
+    CODE_SIGN_STYLE: Automatic
+targets:
+  Clipboard:
+    type: application
+    platform: iOS
+    sources: [App, Shared, Resources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CLIPBOARD_BUNDLE_ID)
+        INFOPLIST_FILE: Config/App.plist
+        CODE_SIGN_ENTITLEMENTS: Config/Shared.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - target: ClipboardKeyboard
+        embed: true
+      - sdk: libsqlite3.tbd
+  ClipboardKeyboard:
+    type: app-extension
+    platform: iOS
+    sources: [Keyboard, Shared, Resources/PrivacyInfo.xcprivacy]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CLIPBOARD_BUNDLE_ID).keyboard
+        INFOPLIST_FILE: Config/Keyboard.plist
+        CODE_SIGN_ENTITLEMENTS: Config/Shared.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    dependencies:
+      - sdk: libsqlite3.tbd
+  ClipboardTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CLIPBOARD_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Clipboard
+  ClipboardUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CLIPBOARD_BUNDLE_ID).uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Clipboard
+    dependencies:
+      - target: Clipboard
+  ClipboardTestHost:
+    type: application
+    platform: iOS
+    sources: [TestHost]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.chkf.ClipboardTestHost
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        SKIP_INSTALL: YES
+schemes:
+  ClipboardTestHost:
+    build:
+      targets:
+        ClipboardTestHost: all
+  Clipboard:
+    build:
+      targets:
+        Clipboard: all
+    test:
+      targets: [ClipboardTests, ClipboardUITests]
+      gatherCoverageData: false

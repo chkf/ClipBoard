@@ -1,0 +1,87 @@
+name: iOS build and release
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Select Xcode 26
+        run: |
+          developer_dir="$(python3 -c '
+          import pathlib, re
+          apps = [(tuple(map(int, m[1].split("."))), p) for p in pathlib.Path("/Applications").glob("Xcode_26*.app") if (m := re.fullmatch(r"Xcode_(26(?:\.\d+)*)\.app", p.name))]
+          print(max(apps)[1] / "Contents/Developer")
+          ')"
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$developer_dir" xcodebuild -version
+      - name: Generate Xcode project
+        run: |
+          command -v xcodegen || brew install xcodegen
+          xcodegen generate
+      - name: Test app and keyboard on iOS 26
+        run: bash scripts/test-ios.sh
+      - name: Build and verify device IPA
+        run: |
+          version="$(awk '/^    MARKETING_VERSION:/ {print $2}' project.yml)"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            test "$GITHUB_REF_NAME" = "v$version"
+          fi
+          bash scripts/package-ipa.sh "$version"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Clipboard-IPA
+          path: build/release/
+          if-no-files-found: error
+      - name: Save test evidence
+        if: always()
+        run: |
+          if [[ -d build/Tests.xcresult ]]; then
+            ditto -ck --keepParent build/Tests.xcresult build/Tests.xcresult.zip
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iOS-test-results
+          path: |
+            build/*.log
+            build/Tests.xcresult.zip
+          if-no-files-found: ignore
+          retention-days: 7
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Clipboard-IPA
+          path: release
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release
+          sha256sum --check *.sha256
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          适用于 iOS 26 及以上版本。Clipboard 在主 App 或自定义键盘打开时收集文本和图片，历史及设置保存在设备上。
+
+          下载 IPA 后，请用自己的 Apple 签名同时重签主 App 和内置键盘扩展。两份描述文件须授权相同的 App Group。安装后在「设置」→「通用」→「键盘」中添加 Clipboard 并允许完全访问。
+
+          [安装、签名标识与校验说明](https://github.com/chkf/ClipBoard/blob/TAG/README.md)
+          NOTES
+          sed -i "s|/blob/TAG/|/blob/$GITHUB_REF_NAME/|" "$RUNNER_TEMP/release-notes.md"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Clipboard $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" *.ipa *.sha256

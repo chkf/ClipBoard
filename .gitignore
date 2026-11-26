@@ -1,0 +1,10 @@
+.DS_Store
+.agents/
+.codex/
+build/
+DerivedData/
+Clipboard.xcodeproj/
+*.xcuserstate
+*.ipa
+*.p12
+*.mobileprovision
