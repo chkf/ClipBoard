@@ -1,0 +1,25 @@
+name: Sign the Control Center shortcut
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  sign:
+    runs-on: macos-15-intel
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export the shortcut for iPhone with Apple's Shortcuts tool
+        run: |
+          set -eu
+          mkdir -p build/shortcut
+          plutil -convert binary1 -o "$RUNNER_TEMP/连拷.shortcut" Config/Collect.shortcut.plist
+          shortcuts sign --mode anyone --input "$RUNNER_TEMP/连拷.shortcut" --output build/shortcut/Clipboard-Collect.shortcut
+          test -s build/shortcut/Clipboard-Collect.shortcut
+          test "$(head -c 4 build/shortcut/Clipboard-Collect.shortcut)" = AEA1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Clipboard-Control-Shortcut
+          path: build/shortcut/Clipboard-Collect.shortcut
+          if-no-files-found: error
