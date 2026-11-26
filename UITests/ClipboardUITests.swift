@@ -318,10 +318,9 @@ final class ClipboardUITests: XCTestCase {
     }
 
     func testReturnKeysMatchTheActiveSystemField() throws {
-        continueAfterFailure = true
         enableKeyboard()
         for (name, translated) in [("Return", "换行"), ("Search", "搜索"), ("Send", "发送"), ("Done", "完成")] {
-            fixture.launchArguments = ["-ReturnKey", name]
+            fixture.launchArguments = ["-ReturnKey", name, "-SystemKeyboard"]
             fixture.launch()
             fixture.textViews["input"].tap()
             let keyboard = fixture.keyboards.firstMatch
@@ -334,6 +333,10 @@ final class ClipboardUITests: XCTestCase {
             screenshot("NativeReturn" + name, in: fixture)
             let nativeScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
             let nativeColor = nativeScreen.keycapColor(in: nativeKey.frame.insetBy(dx: 3, dy: 3))
+
+            fixture.launchArguments = ["-ReturnKey", name]
+            fixture.launch()
+            fixture.textViews["input"].tap()
             let custom = fixture.buttons["keyboardReturn"]
             selectClipboard(in: fixture, expecting: custom)
             XCTAssertEqual(custom.label, translated)

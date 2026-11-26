@@ -3,10 +3,11 @@ import XCTest
 
 @MainActor
 final class SessionTests: XCTestCase {
-    private func eventually(_ predicate: () -> Bool) async throws {
+    private func eventually(file: StaticString = #filePath, line: UInt = #line,
+                            _ predicate: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(12)
         while !predicate(), Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
-        XCTAssertTrue(predicate())
+        XCTAssertTrue(predicate(), file: file, line: line)
     }
 
     func testAutomaticCaptureReopenOwnWritesAndKeyboardReuse() async throws {
@@ -15,7 +16,10 @@ final class SessionTests: XCTestCase {
         let session = ClipboardSession(open: { _ in store })
         defer { session.stop(); try? FileManager.default.removeItem(at: directory) }
         let text = "  line one\nline two\nline three\n"
-        UIPasteboard.general.string = text
+        let board = UIPasteboard.general
+        let before = board.changeCount
+        board.setItems([["public.utf8-plain-text": text]], options: [.localOnly: true])
+        try await eventually { board.changeCount != before && board.string == text }
         session.start(fullAccess: true)
         try await eventually { session.rows.first?.preview == text }
         let initial = try XCTUnwrap(session.rows.first)

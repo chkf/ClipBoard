@@ -43,7 +43,7 @@ struct FixtureApp: App {
                     KeyboardFrameProbe(measure: measure).frame(width: 2, height: 2)
                         .accessibilityIdentifier("keyboardTravel")
                 }
-                KeyboardField(text: $input).frame(height: 100).border(.secondary)
+                KeyboardField(text: $input, trackingSwitch: measure).frame(height: 100).border(.secondary)
                 Text(verbatim: input).accessibilityIdentifier("inserted")
             }
             .padding()
@@ -73,9 +73,10 @@ struct FixtureApp: App {
 
 private struct KeyboardField: UIViewRepresentable {
     @Binding var text: String
+    let trackingSwitch: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeUIView(context: Context) -> UITextView {
+    func makeUIView(context: Context) -> FixtureTextView {
         let view = FixtureTextView()
         view.accessibilityIdentifier = "input"
         view.delegate = context.coordinator
@@ -92,7 +93,9 @@ private struct KeyboardField: UIViewRepresentable {
         }
         return view
     }
-    func updateUIView(_ view: UITextView, context: Context) {}
+    func updateUIView(_ view: FixtureTextView, context: Context) {
+        view.trackingSwitch = trackingSwitch
+    }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         let field: KeyboardField
@@ -102,9 +105,12 @@ private struct KeyboardField: UIViewRepresentable {
 }
 
 private final class FixtureTextView: UITextView {
+    var trackingSwitch = false
+
     override var textInputMode: UITextInputMode? {
+        if trackingSwitch { return super.textInputMode }
         let arguments = ProcessInfo.processInfo.arguments
-        if (arguments.contains("-MeasureKeyboardSwitch") || arguments.contains("-ReturnKey")),
+        if (arguments.contains("-MeasureKeyboardSwitch") || arguments.contains("-SystemKeyboard")),
            let english = UITextInputMode.activeInputModes.first(where: { $0.primaryLanguage?.hasPrefix("en") == true }) {
             return english
         }

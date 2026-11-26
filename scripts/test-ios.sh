@@ -17,10 +17,12 @@ else:
     raise SystemExit(f"{requested} running iOS 26 is required")
 ')"
 mkdir -p build
-if [[ -e build/Tests.xcresult ]]; then
-  previous="$(mktemp -d "$PWD/build/previous-tests.XXXXXX")"
-  mv build/Tests.xcresult "$previous/"
-fi
+for result in build/Tests.xcresult build/KeyboardMotion.xcresult; do
+  if [[ -e "$result" ]]; then
+    previous="$(mktemp -d "$PWD/build/previous-tests.XXXXXX")"
+    mv "$result" "$previous/"
+  fi
+done
 defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
 xcodebuild -quiet build-for-testing -project Clipboard.xcodeproj -scheme Clipboard \
   -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
@@ -29,6 +31,16 @@ xcrun simctl boot "$device" || xcrun simctl bootstatus "$device" -b
 xcrun simctl bootstatus "$device" -b
 xcrun simctl ui "$device" appearance "${CLIPBOARD_TEST_APPEARANCE:-light}"
 xcrun simctl install "$device" build/DerivedData/Build/Products/Debug-iphonesimulator/ClipboardTestHost.app
+run_tests=(xcodebuild test-without-building -project Clipboard.xcodeproj -scheme Clipboard
+           -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData
+           -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-)
+motion_test=ClipboardUITests/ClipboardUITests/testSystemKeyboardSwitchKeepsFrameSteady
+test_status=0
+"${run_tests[@]}" "-skip-testing:$motion_test" -resultBundlePath build/Tests.xcresult \
+  | tee -a build/tests.log || test_status=$?
+
+# Only the keyboard handoff needs screen recording. Leave the simulator free for
+# pasteboard IPC and accessibility snapshots during the rest of the test suite.
 command -v ffmpeg >/dev/null || brew install ffmpeg
 xcrun simctl io "$device" recordVideo --codec=h264 --force build/keyboard-motion.mov >build/recording.log 2>&1 &
 recorder=$!
@@ -40,9 +52,8 @@ stop_recording() {
   fi
 }
 trap stop_recording EXIT
-xcodebuild test-without-building -project Clipboard.xcodeproj -scheme Clipboard \
-  -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
-  -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult \
-  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- | tee -a build/tests.log
+"${run_tests[@]}" "-only-testing:$motion_test" -resultBundlePath build/KeyboardMotion.xcresult \
+  | tee -a build/tests.log || test_status=$?
 stop_recording
 python3 scripts/check-keyboard-motion.py build/keyboard-motion.mov | tee -a build/tests.log
+exit "$test_status"

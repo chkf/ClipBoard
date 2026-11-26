@@ -80,18 +80,22 @@ jobs:
       - name: Save test evidence
         if: always() && matrix.task != 'ipa'
         run: |
-          if [[ -d build/Tests.xcresult ]]; then
-            xcrun xcresulttool get test-results summary --path build/Tests.xcresult || true
-            xcrun xcresulttool export attachments --path build/Tests.xcresult --output-path build/screenshots
-            ditto -ck --keepParent build/Tests.xcresult build/Tests.xcresult.zip
-          fi
+          for result in build/Tests.xcresult build/KeyboardMotion.xcresult; do
+            if [[ -d "$result" ]]; then
+              xcrun xcresulttool get test-results summary --path "$result" || true
+              name="$(basename "$result" .xcresult)"
+              mkdir -p "build/screenshots/$name"
+              xcrun xcresulttool export attachments --path "$result" --output-path "build/screenshots/$name"
+              ditto -ck --keepParent "$result" "$result.zip"
+            fi
+          done
       - uses: actions/upload-artifact@v4
         if: always() && matrix.task != 'ipa'
         with:
           name: iOS-test-results-${{ matrix.task }}
           path: |
             build/*.log
-            build/Tests.xcresult.zip
+            build/*.xcresult.zip
             build/screenshots
           if-no-files-found: ignore
           retention-days: 7
