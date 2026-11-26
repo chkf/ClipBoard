@@ -36,7 +36,8 @@ final class HistoryContainerTests: XCTestCase {
             XCTAssertThrowsError(try HistoryContainer.url(for: host))
             XCTAssertThrowsError(try HistoryContainer.url(for: keyboard))
             let store = try await HistoryStore.shared()
-            XCTAssertNotNil(store.privateDirectory)
+            let directory = await store.privateDirectory
+            XCTAssertNotNil(directory)
             return
         }
         let provisioned = host.object(forInfoDictionaryKey: "ALTAppGroups") as? [String]

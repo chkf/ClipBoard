@@ -79,7 +79,7 @@ final class SessionTests: XCTestCase {
         try await store.observe(.text(text), stamp: PasteStamp(boot: 1, count: 1), replacing: nil)
         let reader = try HistoryStore(directory: directory, readOnly: true)
         var fullAccess = false
-        let session = ClipboardSession(keyboardAccess: { fullAccess }) { readOnly in readOnly ? reader : store }
+        let session = ClipboardSession(keyboardAccess: { fullAccess }, open: { readOnly in readOnly ? reader : store })
         defer { session.stop(); try? FileManager.default.removeItem(at: directory) }
         UIPasteboard.general.string = "must not capture"
         session.start(.keyboard(fullAccess: false))

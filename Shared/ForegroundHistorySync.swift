@@ -132,7 +132,7 @@ final class ForegroundHistorySync: ObservableObject {
                 guard generation == cycle, !Task.isCancelled else { throw CancellationError() }
                 if needsPair || partnerNeedsPair {
                     phase = .pairing(code)
-                    try await withCheckedThrowingContinuation { consent = $0 }
+                    try await withCheckedThrowingContinuation { self.consent = $0 }
                 }
                 try await link.send(true)
                 let approved: Bool = try await link.read()

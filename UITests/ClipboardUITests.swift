@@ -138,15 +138,16 @@ final class ClipboardUITests: XCTestCase {
         let code = String(main.label.suffix(6))
         XCTAssertTrue(code.count == 6 && code.allSatisfy(\.isNumber))
         XCTAssertTrue(keyboard.label.hasSuffix(code))
+        let row = app.buttons.matching(identifier: "historyText").matching(NSPredicate(format: "label == %@", text)).firstMatch
+        XCTAssertFalse(row.exists)
         main.tap()
         keyboard.tap()
         let finished = app.descendants(matching: .any).matching(identifier: "keyboardSynced").firstMatch
         XCTAssertTrue(waitFor(finished), app.debugDescription)
-        let row = app.buttons.matching(identifier: "historyText").matching(NSPredicate(format: "label == %@", text)).firstMatch
         XCTAssertTrue(waitFor(row), app.debugDescription)
         fixture.launch()
         fixture.buttons["Check clipboard image"].tap()
-        XCTAssertTrue(fixture.staticTexts["Image still on clipboard"].exists, fixture.debugDescription)
+        XCTAssertEqual(fixture.staticTexts["copyStatus"].label, "Image still on clipboard", fixture.debugDescription)
         copyInFixture("second")
         fixture.textViews["input"].tap()
         let second = "Saved while the main app was closed"
