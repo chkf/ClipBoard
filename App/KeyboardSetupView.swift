@@ -62,7 +62,12 @@ struct KeyboardSetupView: View {
             }
         }
         .onOpenURL { url in
-            if url.scheme == "clipboard-collect", url.host == "session" { collector.showCollection = true }
+            guard url.scheme == "clipboard-collect" else { return }
+            switch url.host {
+            case "toggle": collector.requestToggle()
+            case "session": collector.showCollection = true
+            default: break
+            }
         }
         .sheet(item: Binding(get: { collector.showCollection ? .collection : panel }, set: { value in
             collector.showCollection = value == .collection

@@ -173,6 +173,7 @@ private struct CaptureTicketField: UIViewControllerRepresentable {
     private final class Field: UITextView {
         override var textInputContextIdentifier: String? { "Clipboard.keyboard.collect" }
         override var textInputMode: UITextInputMode? { ClipboardInputMode.enabled ?? super.textInputMode }
+        override var accessibilityValue: String? { get { nil } set {} }
         override func insertText(_ text: String) {}
         override func deleteBackward() {}
         override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool { false }

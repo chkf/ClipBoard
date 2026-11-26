@@ -1,3 +1,4 @@
+import json
 import plistlib
 import subprocess
 import sys
@@ -22,6 +23,14 @@ widget = read_plist(controls / "Info.plist")
 assert host["NSSupportsLiveActivities"] and "audio" in host["UIBackgroundModes"]
 assert widget["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.widgetkit-extension"
 assert widget["CFBundleIdentifier"] == host["CFBundleIdentifier"] + ".controls"
+assert any("clipboard-collect" in item["CFBundleURLSchemes"] for item in host["CFBundleURLTypes"])
+for bundle in (app, controls):
+    metadata = json.loads((bundle / "Metadata.appintents/extract.actionsdata").read_bytes())
+    intent = metadata["actions"]["ToggleCopyCollection"]
+    assert any(parameter.get("name") == "target" for parameter in intent["parameters"]), intent
+    assert "com.apple.link.systemProtocol.SessionStarting" not in intent["systemProtocols"]
+    if bundle == app:
+        assert metadata["autoShortcuts"], "The system Shortcuts action was not registered"
 assert ext["CFBundleIdentifier"] == host["CFBundleIdentifier"] + ".keyboard"
 assert ext["CFBundleVersion"] == host["CFBundleVersion"]
 assert ext["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.keyboard-service"

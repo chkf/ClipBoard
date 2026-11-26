@@ -29,6 +29,13 @@ xcodebuild -quiet build-for-testing -project Clipboard.xcodeproj -scheme Clipboa
 xcrun simctl bootstatus "$device" -b
 xcrun simctl ui "$device" appearance "${CLIPBOARD_TEST_APPEARANCE:-light}"
 xcrun simctl install "$device" build/DerivedData/Build/Products/Debug-iphonesimulator/ClipboardTestHost.app
+if [[ "${CLIPBOARD_TEST_FOCUS:-keyboard}" == controls ]]; then
+  xcodebuild test-without-building -project Clipboard.xcodeproj -scheme Clipboard \
+    -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
+    -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult \
+    -only-testing:ClipboardUITests/ControlCenterTests CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- | tee -a build/tests.log
+  exit
+fi
 command -v ffmpeg >/dev/null || brew install ffmpeg
 xcrun simctl io "$device" recordVideo --codec=h264 --force build/keyboard-motion.mov >build/recording.log 2>&1 &
 recorder=$!
@@ -43,6 +50,7 @@ trap stop_recording EXIT
 xcodebuild test-without-building -project Clipboard.xcodeproj -scheme Clipboard \
   -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
   -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult \
+  -skip-testing:ClipboardUITests/ControlCenterTests \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- | tee -a build/tests.log
 stop_recording
 python3 scripts/check-keyboard-motion.py build/keyboard-motion.mov | tee -a build/tests.log

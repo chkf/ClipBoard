@@ -80,9 +80,9 @@ struct KeyboardHistory: View {
                         KeyboardKey(label: "空格", id: "keyboardSpace", title: "空格", fill: KeyboardPalette.key, fontSize: 16) { type(" ") }
                         let key = presentation.page == .search ? HostReturnKey(.search) : presentation.returnKey
                         KeyboardKey(label: key.label, id: "keyboardReturn", symbol: key.symbol,
-                                    fill: key.accented && key.enabled ? .systemBlue : KeyboardPalette.modifier,
+                                    fill: key.accented && key.enabled ? KeyboardPalette.returnAccent : KeyboardPalette.returnNeutral,
                                     foreground: !key.enabled ? Color(uiColor: .tertiaryLabel) : key.accented ? .white : .primary,
-                                    fontSize: key.symbol == nil ? 17 : 22) {
+                                    fontSize: key.symbol == nil ? 17 : 19) {
                             if presentation.page == .search { session.filter(draft); presentation.page = .history }
                             else { insert("\n") }
                         }.disabled(!key.enabled).frame(width: max(64, bounds.size.width * 0.225))

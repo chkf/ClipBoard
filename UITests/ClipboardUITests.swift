@@ -18,8 +18,11 @@ final class ClipboardUITests: XCTestCase {
     }
 
     private func allowPasteIfRequested() {
-        let allow = springboard.alerts.buttons.matching(NSPredicate(format: "label IN %@", ["Allow Paste", "允许粘贴"])).firstMatch
-        if allow.waitForExistence(timeout: 0.4) { allow.tap() }
+        let label = NSPredicate(format: "label IN %@", ["Allow Paste", "允许粘贴"])
+        for owner in [springboard, fixture, app] where owner == springboard || owner.state == .runningForeground {
+            let allow = owner.alerts.buttons.matching(label).firstMatch
+            if allow.exists { allow.tap(); return }
+        }
     }
 
     private func waitFor(_ element: XCUIElement, seconds: Double = 15) -> Bool {
@@ -113,14 +116,25 @@ final class ClipboardUITests: XCTestCase {
             globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
         let surface = owner.descendants(matching: .any).matching(NSPredicate(
             format: "identifier IN %@", ["keyboardSpace", "autoSwitch", "receiveCollectedCopies"])).firstMatch
-        for _ in 0..<4 {
-            if surface.exists || entry.exists { break }
+        if !surface.exists && !entry.exists {
             XCTAssertTrue(globe.waitForExistence(timeout: 5), owner.debugDescription)
             globe.tap()
-            if surface.waitForExistence(timeout: 3) || entry.exists { break }
+            if !waitFor(surface, seconds: 10), !entry.exists, globe.exists {
+                globe.press(forDuration: 1.1)
+                let option = NSPredicate(format: "label CONTAINS[c] 'Clipboard' AND NOT (identifier IN %@)",
+                                         ["NextKeyboard", "InputModeSwitchKey"])
+                for host in [owner, springboard] {
+                    let choices = host.descendants(matching: .any).matching(option).allElementsBoundByIndex
+                    if let choice = choices.first(where: { $0.isHittable && $0.frame.midY > owner.frame.midY && $0.frame.height < 100 }) {
+                        choice.tap()
+                        break
+                    }
+                }
+            }
         }
-        XCTAssertTrue(waitFor(entry), owner.debugDescription)
-        return false
+        let found = waitFor(entry)
+        XCTAssertTrue(found, owner.debugDescription)
+        return found
     }
 
     private func screenshot(_ title: String, in owner: XCUIApplication) {

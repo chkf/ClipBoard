@@ -11,10 +11,10 @@ import WidgetKit
 
 struct CopyControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
-        StaticControlConfiguration(kind: "net.chkf.Clipboard.collect") {
+        StaticControlConfiguration(kind: CollectionControl.kind) {
             ControlWidgetButton(action: ToggleCopyCollection()) {
-                Label("连拷开关", systemImage: "rectangle.on.rectangle")
-            }
+                Label("连续复制", systemImage: CollectionControl.symbol)
+            }.tint(.mint)
         }.displayName("连续复制").description("开启或结束跨 App 连拷。")
     }
 }

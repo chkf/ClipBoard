@@ -1,10 +1,23 @@
 import SwiftUI
+import AppIntents
+import WidgetKit
 
 @main
 struct ClipboardApp: App {
     var body: some Scene {
         WindowGroup {
             KeyboardSetupView()
+                .onAppIntentExecution(ToggleCopyCollection.self) { _ in
+                    CopyCollector.shared.requestToggle()
+                }
+                .task {
+                    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+                    if UserDefaults.standard.string(forKey: "IndexedControlsBuild") != version {
+                        ControlCenter.shared.reloadControls(ofKind: CollectionControl.kind)
+                        ClipboardShortcuts.updateAppShortcutParameters()
+                        UserDefaults.standard.set(version, forKey: "IndexedControlsBuild")
+                    }
+                }
                 #if DEBUG && targetEnvironment(simulator)
                 .task {
                     guard let prefix = ProcessInfo.processInfo.environment["CLIPBOARD_TEST_BATCH"] else { return }
@@ -17,5 +30,12 @@ struct ClipboardApp: App {
                 }
                 #endif
         }
+    }
+}
+
+struct ClipboardShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: ToggleCopyCollection(), phrases: ["用\(.applicationName)连续复制"],
+                    shortTitle: "切换连续复制", systemImageName: "list.clipboard.fill")
     }
 }

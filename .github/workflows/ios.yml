@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [simulator, private-simulator, ipa]
+        task: [simulator, private-simulator, controls, ipa]
     runs-on: macos-15-intel
     timeout-minutes: 45
     steps:
@@ -50,7 +50,7 @@ jobs:
             "$plist" -c "Add :ALTAppGroups:0 string $group" "$file"
           done
       - name: Configure independent app and extension containers
-        if: matrix.task == 'private-simulator'
+        if: matrix.task == 'private-simulator' || matrix.task == 'controls'
         run: |
           plist=/usr/libexec/PlistBuddy
           "$plist" -c 'Delete :com.apple.security.application-groups' Config/Shared.entitlements
@@ -62,6 +62,7 @@ jobs:
         env:
           CLIPBOARD_TEST_APPEARANCE: ${{ matrix.task == 'private-simulator' && 'dark' || 'light' }}
           CLIPBOARD_TEST_DEVICE: ${{ matrix.task == 'private-simulator' && 'iPhone 17 Pro Max' || 'iPhone 17' }}
+          CLIPBOARD_TEST_FOCUS: ${{ matrix.task == 'controls' && 'controls' || 'keyboard' }}
         run: bash scripts/test-ios.sh
       - name: Build and verify device IPA
         if: matrix.task == 'ipa'

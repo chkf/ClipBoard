@@ -5,6 +5,8 @@ enum KeyboardPalette {
     static let tray = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.125, alpha: 1) : .systemGray5 }
     static let key = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.27, alpha: 1) : .white }
     static let modifier = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.28, alpha: 1) : UIColor(white: 0.79, alpha: 1) }
+    static let returnAccent = UIColor(red: 0, green: 122/255, blue: 1, alpha: 1)
+    static let returnNeutral = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 60/255, alpha: 1) : modifier.resolvedColor(with: $0) }
     static let pressed = UIColor { $0.userInterfaceStyle == .dark ? .systemGray : .systemGray3 }
 }
 

@@ -20,12 +20,15 @@ final class ClipboardSession: ObservableObject {
     private var generation = UUID()
     private var listGeneration = UUID()
     private var failedStamp: PasteStamp?
+    private var failedAttempts = 0
+    private var retryAfter = Date.distantPast
     private var verifiedStamp: PasteStamp?
     private var revision = -1
     private var pageEnd = false
     private var paging = false
     private var lastPrune = Date.distantPast
     private let mirror = CaptureMirror.Reader()
+    private var mirrorTask: Task<Void, Never>?
     private var lastMirrorCheck = Date.distantPast
     private var captureEnabled = true
     var active = true
@@ -60,6 +63,8 @@ final class ClipboardSession: ObservableObject {
     func stop() {
         fullAccess = false
         monitor?.cancel()
+        mirrorTask?.cancel()
+        mirrorTask = nil
         capture?.cancel()
         if let notification { NotificationCenter.default.removeObserver(notification) }
         notification = nil
@@ -68,6 +73,7 @@ final class ClipboardSession: ObservableObject {
         captureStamp = nil
         generation = UUID()
         failedStamp = nil
+        failedAttempts = 0
         verifiedStamp = nil
         revision = -1
         query = ""
@@ -93,10 +99,13 @@ final class ClipboardSession: ObservableObject {
                 store = connection
             }
             guard let store else { return }
-            if fullAccess, captureEnabled, keyboardAccess != nil, Date().timeIntervalSince(lastMirrorCheck) >= 0.8 {
+            if fullAccess, captureEnabled, keyboardAccess != nil, mirrorTask == nil, Date().timeIntervalSince(lastMirrorCheck) >= 0.8 {
                 lastMirrorCheck = Date()
-                try? await mirror.receive(into: store)
-                guard generation == cycle, active else { return }
+                mirrorTask = Task { [weak self] in
+                    guard let self else { return }
+                    try? await mirror.receive(into: store)
+                    if generation == cycle { mirrorTask = nil }
+                }
             }
             if fullAccess, Date().timeIntervalSince(lastPrune) >= 60 {
                 try await store.prune()
@@ -112,7 +121,8 @@ final class ClipboardSession: ObservableObject {
             captureStamp = nil
             // On first appearance verify the content as well as the counter. UIKit may
             // publish a batched counter update at the end of a foreground event loop.
-            guard failedStamp != stamp, state.event?.stamp != stamp || verifiedStamp != stamp else { return }
+            if failedStamp == stamp, failedAttempts >= 3 || Date() < retryAfter { return }
+            guard state.event?.stamp != stamp || verifiedStamp != stamp else { return }
             captureStamp = stamp
             capture = Task { [weak self] in
                 guard let self else { return }
@@ -126,9 +136,14 @@ final class ClipboardSession: ObservableObject {
                     guard let providers = try SystemPasteboard.providers() else { return }
                     let clip = try await SystemPasteboard.read(providers)
                     try Task.checkCancellation()
-                    guard self.generation == cycle, self.active, SystemPasteboard.stamp == stamp else { return }
+                    // A paste prompt may temporarily deactivate the host while an authorized
+                    // provider finishes. Entering the background invalidates the generation.
+                    guard self.generation == cycle, self.fullAccess, self.keyboardAccess?() != false, SystemPasteboard.stamp == stamp else { return }
+                    if clip == nil, UIPasteboard.general.hasImages { throw HistoryError.unreadable }
                     try await store.observe(clip, stamp: stamp, replacing: state.event)
                     guard self.generation == cycle else { return }
+                    self.failedStamp = nil
+                    self.failedAttempts = 0
                     self.message = nil
                     let committed = try await self.refresh(store, cycle: cycle)
                     if self.generation == cycle, committed.event == PasteEvent(stamp: stamp, key: clip?.key) {
@@ -138,7 +153,11 @@ final class ClipboardSession: ObservableObject {
                     return
                 } catch {
                     guard self.generation == cycle, !Task.isCancelled else { return }
-                    if case HistoryError.unreadable = error { self.failedStamp = stamp }
+                    if case HistoryError.unreadable = error {
+                        self.failedAttempts = self.failedStamp == stamp ? self.failedAttempts + 1 : 1
+                        self.failedStamp = stamp
+                        self.retryAfter = Date().addingTimeInterval(Double(self.failedAttempts))
+                    }
                     self.message = error.localizedDescription
                 }
             }

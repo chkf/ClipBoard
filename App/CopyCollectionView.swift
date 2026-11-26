@@ -29,7 +29,7 @@ struct CopyCollectionView: View {
                     Section { Text(message).font(.footnote).accessibilityIdentifier("captureStatus") }
                 }
                 Section {
-                    Text("在控制中心长按空白处，点「添加控制」，搜索「连续复制」。系统询问粘贴权限时选「允许粘贴」。")
+                    Text("长按控制中心空白处，点「添加控制」，搜索「连续复制」。也可以在系统「快捷指令」里运行 Clipboard 的「切换连续复制」。系统询问粘贴权限时选「允许粘贴」。")
                         .font(.subheadline).foregroundStyle(.secondary)
                 } header: { Text("控制中心") }
             }

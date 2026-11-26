@@ -10,6 +10,11 @@ struct FixtureApp: App {
     var body: some Scene {
         WindowGroup {
             VStack {
+                if ProcessInfo.processInfo.arguments.contains("-LaunchCollectionURL") {
+                    Button("Toggle Clipboard via URL") {
+                        UIApplication.shared.open(URL(string: "clipboard-collect://toggle")!)
+                    }
+                }
                 if ProcessInfo.processInfo.arguments.contains("-CollectionFixture") {
                     ForEach(["alpha", "bravo", "charlie"], id: \.self) { word in
                         Button("Copy " + word) {
