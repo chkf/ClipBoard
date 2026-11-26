@@ -39,6 +39,9 @@ struct HostReturnKey: Equatable {
     @Published var returnKey = HostReturnKey()
     @Published var heightOffset = 0
     @Published var needsGlobe = false
+    @Published var ticket: CaptureTicket?
+    @Published var receiving = false
+    @Published var importMessage: String?
 }
 
 struct KeycapStyle: ButtonStyle {

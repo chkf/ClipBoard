@@ -290,4 +290,39 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["7 天"].isSelected)
         app.buttons["finishTrial"].tap()
     }
+
+    func testVisibleCollectionSavesThreeCopiesAcrossApps() throws {
+        enableKeyboard()
+        app.activate()
+        app.buttons["openCollection"].tap()
+        app.buttons["captureToggle"].tap()
+        let unsupported = label("这台设备当前不支持画中画。", in: app)
+        if unsupported.waitForExistence(timeout: 2) { throw XCTSkip("AVKit reports that Picture in Picture is unavailable on this simulator.") }
+        XCTAssertTrue(label("停止连拷", in: app).waitForExistence(timeout: 14), app.debugDescription)
+        fixture.launchArguments = ["-CollectionFixture"]
+        fixture.launch()
+        for word in ["alpha", "bravo", "charlie"] {
+            copyInFixture(word)
+            allowPasteIfRequested()
+        }
+        app.activate()
+        XCTAssertTrue(label("3 条", in: app).waitForExistence(timeout: 8) ||
+                      app.descendants(matching: .any).matching(NSPredicate(format: "value == '3 条' OR label CONTAINS '3 条'")).firstMatch.exists,
+                      app.debugDescription)
+        app.buttons["captureToggle"].tap()
+        let receive = app.buttons["receiveCollectedCopies"]
+        if receive.waitForExistence(timeout: 6) {
+            receive.tap()
+            XCTAssertTrue(receive.waitForNonExistence(timeout: 15), app.debugDescription)
+        } else if app.buttons["deliverCopies"].exists {
+            app.buttons["deliverCopies"].tap()
+            selectClipboard(in: app, expecting: receive)
+            receive.tap()
+            XCTAssertTrue(receive.waitForNonExistence(timeout: 15), app.debugDescription)
+        }
+        fixture.activate()
+        fixture.textViews["input"].tap()
+        selectClipboard(in: fixture, expecting: historyKey("charlie", in: fixture))
+        for word in ["alpha", "bravo"] { XCTAssertTrue(historyKey(word, in: fixture).exists, fixture.debugDescription) }
+    }
 }

@@ -9,6 +9,7 @@ struct KeyboardHistory: View {
     let erase: () -> Void
     let selectedText: () -> String?
     let adjustHeight: (Int?) -> Void
+    let receive: () -> Void
     let globe: (UIButton) -> Void
     @State private var confirmClear = false
     @State private var draft = ""
@@ -24,7 +25,17 @@ struct KeyboardHistory: View {
             let bottom = compact ? CGFloat(35) : 45
             let rail = min(56, max(43, bounds.size.width * 0.122))
             VStack(spacing: gap) {
-                if presentation.settings {
+                if presentation.ticket != nil {
+                    VStack(spacing: 14) {
+                        Image(systemName: "tray.and.arrow.down").font(.title2)
+                        if let note = presentation.importMessage { Text(note).font(.footnote) }
+                        if !session.fullAccess { Text("请先在系统设置中允许键盘完全访问。").font(.footnote) }
+                        Button(presentation.receiving ? "正在存入…" : "存入键盘", action: receive)
+                            .buttonStyle(.borderedProminent).accessibilityIdentifier("receiveCollectedCopies")
+                            .disabled(presentation.receiving || !session.loaded || !session.fullAccess)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if presentation.needsGlobe { SystemGlobe(install: globe).frame(width: rail, height: bottom) }
+                } else if presentation.settings {
                     settings
                     if presentation.needsGlobe { SystemGlobe(install: globe).frame(width: rail, height: bottom).frame(maxWidth: .infinity, alignment: .leading) }
                 } else {

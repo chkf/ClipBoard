@@ -1,0 +1,124 @@
+import Foundation
+import Network
+import SwiftUI
+import UIKit
+
+@MainActor final class CaptureDelivery: ObservableObject {
+    @Published private(set) var ticket: CaptureTicket?
+    @Published private(set) var done = false
+    @Published private(set) var error: String?
+    private var listener: NWListener?
+    private var link: CaptureLink?
+    private var task: Task<Void, Never>?
+    private var cycle = UUID()
+
+    func start() {
+        stop()
+        done = false
+        error = nil
+        let generation = cycle
+        do {
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+            let listener = try NWListener(using: parameters)
+            self.listener = listener
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
+                Task { @MainActor in
+                    guard let self, self.cycle == generation else { return }
+                    switch state {
+                    case .ready:
+                        if let port = listener?.port { self.ticket = CaptureTicket(port: port.rawValue) }
+                    case .failed: self.error = "未能打开本机连接，请重试。"
+                    default: break
+                    }
+                }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                Task { @MainActor in
+                    guard let self, self.cycle == generation, let ticket = self.ticket, self.link == nil else { connection.cancel(); return }
+                    let link = CaptureLink(connection, ticket: ticket)
+                    self.link = link
+                    self.task = Task {
+                        defer { link.close(); if self.cycle == generation { self.link = nil } }
+                        do {
+                            guard try await link.read() == Data("receive".utf8) else { return }
+                            for file in try await CaptureInbox.shared.entries() {
+                                let filename = file.deletingPathExtension().lastPathComponent
+                                guard let dash = filename.firstIndex(of: "-") else { throw HistoryError.unreadable }
+                                let header = Data(filename[filename.index(after: dash)...].utf8)
+                                try await link.send(header)
+                                try await link.sendFile(file)
+                                guard try await link.read() == header else { throw HistoryError.unreadable }
+                                try await CaptureInbox.shared.acknowledge(file)
+                            }
+                            try await link.send(Data("done".utf8))
+                            guard try await link.read() == Data("done".utf8), self.cycle == generation else { return }
+                            self.done = true
+                        } catch { if self.cycle == generation { self.error = "传送已中断。已保存的条目会保留，点重试可继续。" } }
+                    }
+                }
+            }
+            listener.start(queue: CaptureLink.queue)
+        } catch { self.error = "未能打开本机连接，请重试。" }
+    }
+    func stop() {
+        cycle = UUID()
+        task?.cancel(); task = nil
+        listener?.cancel(); listener = nil
+        link?.close(); link = nil
+        ticket = nil
+    }
+}
+
+struct CaptureDeliveryView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var delivery = CaptureDelivery()
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                if let error = delivery.error { Text(error); Button("重试") { delivery.start() } }
+                else if let ticket = delivery.ticket {
+                    Text("在下方点「存入键盘」。如果出现其他输入法，请用地球键选择 Clipboard。")
+                    CaptureTicketField(marker: ticket.marker).frame(height: 2).accessibilityHidden(true)
+                } else { ProgressView() }
+                Spacer()
+            }.padding().frame(maxWidth: .infinity, alignment: .leading)
+                .navigationTitle("存入键盘").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("稍后") { dismiss() } } }
+        }
+        .onAppear { delivery.start() }.onDisappear { delivery.stop() }
+        .onChange(of: delivery.done) { _, done in if done { dismiss() } }
+    }
+}
+
+private struct CaptureTicketField: UIViewRepresentable {
+    let marker: String
+    func makeUIView(context: Context) -> Field {
+        let field = Field()
+        field.autocorrectionType = .no
+        field.returnKeyType = .join
+        field.textColor = .clear
+        field.tintColor = .clear
+        field.isAccessibilityElement = false
+        return field
+    }
+    func updateUIView(_ view: Field, context: Context) {
+        if view.text != marker {
+            view.text = marker
+            view.textContentType = UITextContentType(rawValue: marker)
+            view.activate()
+        }
+    }
+    final class Field: UITextView {
+        override var textInputContextIdentifier: String? { "Clipboard.keyboard.collect" }
+        override var textInputMode: UITextInputMode? { ClipboardInputMode.enabled ?? super.textInputMode }
+        override func didMoveToWindow() { super.didMoveToWindow(); activate() }
+        func activate() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil else { return }
+                self.becomeFirstResponder()
+                self.selectedTextRange = self.textRange(from: self.beginningOfDocument, to: self.endOfDocument)
+            }
+        }
+    }
+}
