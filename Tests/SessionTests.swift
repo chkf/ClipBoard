@@ -75,6 +75,30 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(afterEmptyProbe, lastCopy)
     }
 
+    func testResumingRechecksTheContentsOfAnAlreadySeenPasteCount() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = try HistoryStore(directory: directory)
+        let session = ClipboardSession(open: { _ in store })
+        defer { session.stop(); try? FileManager.default.removeItem(at: directory) }
+        let text = "Current clipboard content"
+        let board = UIPasteboard.general
+        let before = board.changeCount
+        board.setItems([["public.utf8-plain-text": text]], options: [.localOnly: true])
+        try await eventually { board.changeCount != before && board.string == text }
+        session.start(fullAccess: true)
+        try await eventually { session.rows.first?.preview == text }
+
+        let state = try await store.state()
+        let event = try XCTUnwrap(state.event)
+        let earlier = "Earlier representation"
+        try await store.observe(.text(earlier), stamp: event.stamp, replacing: event)
+        try await eventually { session.rows.first?.preview == earlier }
+        session.active = false
+        session.start(fullAccess: true)
+        try await eventually { session.rows.first?.preview == text }
+        XCTAssertEqual(board.changeCount, event.stamp.count)
+    }
+
     func testKeyboardWithoutFullAccessOnlyInsertsExistingText() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = try HistoryStore(directory: directory)

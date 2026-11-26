@@ -14,7 +14,7 @@ struct FixtureApp: App {
                     let board = UIPasteboard.general
                     let value = "Clipboard UI fixture\nsecond line\nthird line"
                     let before = board.changeCount
-                    board.string = value
+                    board.setItems([["public.utf8-plain-text": value]], options: [.localOnly: true])
                     confirmWrite("Text copied", after: before) { board.string == value }
                 }
                 Button("Copy image") {
@@ -25,13 +25,13 @@ struct FixtureApp: App {
                     let board = UIPasteboard.general
                     let data = image.pngData()!
                     let before = board.changeCount
-                    board.setData(data, forPasteboardType: "public.png")
+                    board.setItems([["public.png": data]], options: [.localOnly: true])
                     confirmWrite("Image copied", after: before) { board.data(forPasteboardType: "public.png") == data }
                 }
                 Button("Copy second") {
                     let board = UIPasteboard.general
                     let before = board.changeCount
-                    board.string = "短句"
+                    board.setItems([["public.utf8-plain-text": "短句"]], options: [.localOnly: true])
                     confirmWrite("Second copied", after: before) { board.string == "短句" }
                 }
                 Button("Check clipboard image") {

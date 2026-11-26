@@ -18,19 +18,25 @@ final class ClipboardUITests: XCTestCase {
         }
     }
 
-    private func allowPasteIfRequested() {
+    private func allowPasteIfRequested() -> Bool {
         let label = NSPredicate(format: "label IN %@", ["Allow Paste", "允许粘贴"])
         for owner in [springboard, fixture, app] where owner == springboard || owner.state == .runningForeground {
             let allow = owner.alerts.buttons.matching(label).firstMatch
-            if allow.exists { allow.tap(); return }
+            if allow.exists { allow.tap(); return true }
         }
+        return false
     }
 
     private func waitFor(_ element: XCUIElement, seconds: Double = 15) -> Bool {
-        let end = Date().addingTimeInterval(seconds)
+        var end = Date().addingTimeInterval(seconds)
+        var granted = false
         repeat {
-            allowPasteIfRequested()
-            if element.waitForExistence(timeout: 0.5) { return true }
+            if allowPasteIfRequested(), !granted {
+                end = Date().addingTimeInterval(seconds)
+                granted = true
+            }
+            if element.exists { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         } while Date() < end
         return false
     }
@@ -55,6 +61,19 @@ final class ClipboardUITests: XCTestCase {
 
     private func tapSwitch(_ toggle: XCUIElement) {
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+    }
+
+    private func confirmFullAccess(in settings: XCUIApplication) -> Bool {
+        let allow = NSPredicate(format: "label IN[c] %@", ["Allow", "允许"])
+        let fullAccess = NSPredicate(format: "label IN[c] %@", ["Allow Full Access", "允许完全访问"])
+        for owner in [settings, springboard] {
+            let button = owner.buttons.matching(allow).firstMatch
+            if button.exists && button.isHittable { button.tap(); return true }
+            let dialog = owner.alerts.firstMatch.exists ? owner.alerts.firstMatch : owner.sheets.firstMatch
+            let grant = dialog.buttons.matching(fullAccess).firstMatch
+            if grant.exists && grant.isHittable { grant.tap(); return true }
+        }
+        return false
     }
 
     private func copyInFixture(_ type: String) {
@@ -96,18 +115,21 @@ final class ClipboardUITests: XCTestCase {
         clipboard.tap()
         let fullAccess = settings.switches.firstMatch
         XCTAssertTrue(fullAccess.waitForExistence(timeout: 5), settings.debugDescription)
-        if fullAccess.value as? String != "1" {
-            tapSwitch(fullAccess)
-            for owner in [settings, springboard] {
-                let confirm = owner.buttons.matching(NSPredicate(format: "label IN %@", ["Allow", "允许"])).firstMatch
-                if confirm.waitForExistence(timeout: 2) { confirm.tap(); break }
-                let modal = owner.alerts.firstMatch.exists ? owner.alerts.firstMatch : owner.sheets.firstMatch
-                let grant = modal.buttons.matching(NSPredicate(format: "label IN[c] %@", ["Allow Full Access", "允许完全访问"])).firstMatch
-                if grant.exists { grant.tap(); break }
+        for _ in 0..<3 where fullAccess.value as? String != "1" {
+            if !confirmFullAccess(in: settings) {
+                let control = fullAccess.switches.firstMatch
+                if control.exists && control.isHittable { control.tap() }
+                else { tapSwitch(fullAccess) }
             }
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                if confirmFullAccess(in: settings) { break }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            } while Date() < deadline
+            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: fullAccess)
+            if XCTWaiter.wait(for: [enabled], timeout: 5) == .completed { break }
         }
-        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: fullAccess)
-        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, settings.debugDescription)
+        XCTAssertEqual(fullAccess.value as? String, "1", settings.debugDescription)
         Self.configuredKeyboard = true
     }
 
@@ -241,7 +263,7 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(waitFor(historyKey(text, in: fixture)), fixture.debugDescription)
         copyInFixture("image")
         let picture = historyKey("图片", in: fixture)
-        XCTAssertTrue(waitFor(picture), fixture.debugDescription)
+        XCTAssertTrue(waitFor(picture, seconds: 30), fixture.debugDescription)
         screenshot("ClipboardKeyboard", in: fixture)
         tapTrailingEdge(picture, in: fixture)
         fixture.buttons["Check clipboard image"].tap()

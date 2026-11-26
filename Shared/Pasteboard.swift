@@ -11,9 +11,14 @@ enum SystemPasteboard {
         let board = UIPasteboard.general
         // During foreground hand-off the change count can be visible before the representations.
         // An empty type probe is cheap to retry and must not consume a copy event.
-        guard board.hasImages || board.hasStrings || board.hasURLs else { return nil }
+        let hasImages = board.hasImages
+        guard hasImages || board.hasStrings || board.hasURLs else { return nil }
         let providers = board.itemProviders
         guard !providers.isEmpty else { throw HistoryError.unreadable }
+        if hasImages, !board.hasStrings, !board.hasURLs,
+           !providers.contains(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }) {
+            return nil
+        }
         return providers
     }
 

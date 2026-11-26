@@ -37,8 +37,12 @@ final class ClipboardSession: ObservableObject {
     }
 
     func start(fullAccess: Bool, captureEnabled: Bool = true) {
+        let resuming = !active
         active = true
-        if monitor != nil, fullAccess == self.fullAccess, captureEnabled == self.captureEnabled { return }
+        if monitor != nil, fullAccess == self.fullAccess, captureEnabled == self.captureEnabled {
+            if resuming { verifiedStamp = nil }
+            return
+        }
         stop()
         self.fullAccess = fullAccess
         self.captureEnabled = captureEnabled
@@ -46,7 +50,13 @@ final class ClipboardSession: ObservableObject {
         if captureEnabled {
             notification = NotificationCenter.default.addObserver(forName: UIPasteboard.changedNotification,
                                                                object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in await self?.tick(generation) }
+                Task { @MainActor in
+                    guard let self, self.generation == generation else { return }
+                    // The provider may become readable after a paste prompt while UIKit
+                    // still exposes the same (batched) counter to the extension.
+                    self.verifiedStamp = nil
+                    await self.tick(generation)
+                }
             }
         }
         monitor = Task { [weak self] in
