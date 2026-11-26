@@ -106,15 +106,13 @@ final class ClipboardUITests: XCTestCase {
         let globeLabels = ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "下一个键盘", "切换键盘"]
         let globe = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
             globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
-        let direct = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ AND value BEGINSWITH[c] 'Clipboard'", globeLabels)).firstMatch
-        if direct.exists { direct.tap() }
-        else {
+        let surface = owner.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier IN %@", ["keyboardSpace", "autoSwitch", "receiveCollectedCopies"])).firstMatch
+        for _ in 0..<4 {
+            if surface.exists || entry.exists { break }
             XCTAssertTrue(globe.waitForExistence(timeout: 5), owner.debugDescription)
-            globe.press(forDuration: 1.0)
-            let menu = owner.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard' AND elementType != %d",
-                XCUIElement.ElementType.navigationBar.rawValue)).allElementsBoundByIndex
-            if let choice = menu.last(where: { $0.isHittable }) { choice.tap() }
-            else { globe.tap() }
+            globe.tap()
+            if surface.waitForExistence(timeout: 3) || entry.exists { break }
         }
         XCTAssertTrue(waitFor(entry), owner.debugDescription)
         return false
@@ -349,17 +347,23 @@ final class ClipboardUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 10))
         let deliver = app.buttons["deliverCopies"]
-        if deliver.waitForExistence(timeout: 3) {
-            deliver.tap()
-            let receive = app.buttons["receiveCollectedCopies"]
-            if receive.waitForExistence(timeout: 5), receive.isEnabled { receive.tap() }
-            XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 15), app.debugDescription)
-            XCTAssertTrue(deliver.waitForNonExistence(timeout: 15))
-        }
+        if deliver.waitForExistence(timeout: 3) { deliver.tap(); finishDelivery() }
         fixture.launch()
         fixture.textViews["input"].tap()
         selectClipboard(in: fixture, expecting: historyKey(prefix + "three", in: fixture))
         for word in ["one", "two"] { XCTAssertTrue(historyKey(prefix + word, in: fixture).exists) }
+    }
+
+    private func finishDelivery() {
+        let receive = app.buttons["receiveCollectedCopies"], sheet = app.navigationBars["存入键盘"]
+        if !receive.waitForExistence(timeout: 2), sheet.exists { selectClipboard(in: app, expecting: receive) }
+        if receive.exists {
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false OR enabled == true"), object: receive)
+            _ = XCTWaiter.wait(for: [ready], timeout: 10)
+            if receive.exists, receive.isEnabled { receive.tap() }
+        }
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(app.buttons["deliverCopies"].waitForNonExistence(timeout: 10), app.debugDescription)
     }
 
     func testVisibleCollectionSavesThreeCopiesAcrossApps() throws {
@@ -384,16 +388,8 @@ final class ClipboardUITests: XCTestCase {
                       app.descendants(matching: .any).matching(NSPredicate(format: "value == '3 条' OR label CONTAINS '3 条'")).firstMatch.exists,
                       app.debugDescription)
         app.buttons["captureToggle"].tap()
-        let receive = app.buttons["receiveCollectedCopies"]
-        if receive.waitForExistence(timeout: 6) {
-            receive.tap()
-            XCTAssertTrue(receive.waitForNonExistence(timeout: 15), app.debugDescription)
-        } else if app.buttons["deliverCopies"].exists {
-            app.buttons["deliverCopies"].tap()
-            selectClipboard(in: app, expecting: receive)
-            receive.tap()
-            XCTAssertTrue(receive.waitForNonExistence(timeout: 15), app.debugDescription)
-        }
+        if app.navigationBars["存入键盘"].waitForExistence(timeout: 4) { finishDelivery() }
+        else if app.buttons["deliverCopies"].exists { app.buttons["deliverCopies"].tap(); finishDelivery() }
         fixture.activate()
         fixture.textViews["input"].tap()
         selectClipboard(in: fixture, expecting: historyKey("charlie", in: fixture))

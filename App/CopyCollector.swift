@@ -113,6 +113,7 @@ import UIKit
     @objc private func willLock() { locking = true; stop() }
     @objc private func didUnlock() { locking = false }
     @objc private func becameActive() {
+        picture.startIfReady()
         startIfReady()
         Task { await refreshPending() }
     }
@@ -126,10 +127,9 @@ import UIKit
         guard UIApplication.shared.isProtectedDataAvailable else { willLock(); return }
         let stamp = SystemPasteboard.stamp
         guard stamp != observed, failedAt.map({ Date().timeIntervalSince($0) >= 1 }) ?? true else { return }
-        let board = UIPasteboard.general
         let text: String?
         var providers: [NSItemProvider]?
-        if !board.hasImages, board.hasStrings, let value = board.string, !value.isEmpty {
+        if let value = SystemPasteboard.plainText() {
             text = value
         } else {
             text = nil

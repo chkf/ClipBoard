@@ -61,6 +61,7 @@ jobs:
         if: matrix.task != 'ipa'
         env:
           CLIPBOARD_TEST_APPEARANCE: ${{ matrix.task == 'private-simulator' && 'dark' || 'light' }}
+          CLIPBOARD_TEST_DEVICE: ${{ matrix.task == 'private-simulator' && 'iPhone 17 Pro Max' || 'iPhone 17' }}
         run: bash scripts/test-ios.sh
       - name: Build and verify device IPA
         if: matrix.task == 'ipa'
@@ -128,13 +129,13 @@ jobs:
           fi
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$GITHUB_SHA"
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          适用于 iOS 26 及以上版本。键盘直接保存文本和图片，每条记录都是整行可点的圆角键帽。底部提供空格、换行或退格，顶部的垃圾桶可以删除记录。键盘在切入时即确定布局高度。
+          适用于 iOS 26 及以上版本。用全能签请下载 `-local.ipa`，重签整个 IPA 并保留键盘和控制中心两个扩展。覆盖安装时沿用原包类型和签名标识，可保留键盘历史。
 
-          用全能签或没有 App Group 的个人签，选 `-local.ipa`，重签整个 IPA 并保留键盘扩展。安装后在系统键盘设置中添加 Clipboard 并打开「允许完全访问」。
+          **连续复制**　在控制中心添加 Clipboard 的「连续复制」，点一下开启画中画，然后回到其他 App 正常复制。小窗可以拖到左右边缘，灵动岛显示计数。关闭小窗、停止收集或锁屏结束本次会话。首次运行请允许粘贴。
 
-          主 App 提供启用说明、试用输入框和键盘设置。打开首页时键盘保持收起。在右上角齿轮中更改保留期限及插入后自动切换，直接保存到键盘，无需配对或同步。沿用原签名标识、相同包类型覆盖安装时，键盘继续使用原有历史和设置。
+          **全能签**　首次结束连拷后，在主 App 打开的 Clipboard 键盘里点「存入键盘」。之后切到键盘时会尝试自动收下近期小条目。大图或尚未送达的记录仍可从主 App 的「连续复制」整批存入。请在系统键盘设置中启用 Clipboard 并打开「允许完全访问」。
 
-          之前使用共享组历史的用户可继续选 `-resign.ipa`。SideStore 安装时选择保留并注册扩展。
+          **键盘**　右滑置顶、左滑删除，支持原文和拼音搜索。右侧长退格键与底部数字、Emoji、空格及回车组成操作区。键盘按屏幕宽度调整高度，主 App 齿轮里可微调。共享组或 SideStore 原用户可继续选择 `-resign.ipa` 并保留扩展，连拷结果直接进入共享历史。
 
           [安装、签名标识与校验说明](https://github.com/chkf/ClipBoard/blob/TAG/README.md)
           NOTES

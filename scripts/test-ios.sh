@@ -2,17 +2,19 @@
 set -euo pipefail
 
 device="$(xcrun simctl list devices available -j | python3 -c '
-import json, sys
+import json, os, sys
 devices = json.load(sys.stdin)["devices"]
+requested = os.environ.get("CLIPBOARD_TEST_DEVICE", "iPhone 17")
 versions = sorted((key for key in devices if ".iOS-26-" in key),
                   key=lambda key: tuple(int(n) for n in key.split(".iOS-")[-1].split("-")), reverse=True)
 for version in versions:
     phones = [d for d in devices[version] if d["name"].startswith("iPhone") and d["isAvailable"]]
-    if phones:
-        print(next((d for d in phones if d["name"] == "iPhone 17"), phones[0])["udid"])
+    selected = next((d for d in phones if d["name"] == requested), None)
+    if selected:
+        print(selected["udid"])
         break
 else:
-    raise SystemExit("An iPhone simulator running iOS 26 is required")
+    raise SystemExit(f"{requested} running iOS 26 is required")
 ')"
 mkdir -p build
 if [[ -e build/Tests.xcresult ]]; then

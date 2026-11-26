@@ -52,8 +52,14 @@ struct KeyboardHistory: View {
                                 }.disabled(!session.fullAccess).frame(height: bottom)
                                 KeyboardKey(label: "搜索历史", id: "openSearch", symbol: "magnifyingglass") { openSearch() }
                                     .frame(height: bottom)
-                            } else {
+                            } else if presentation.page == .search {
                                 KeyboardKey(label: "返回剪贴板", id: "returnToHistory", symbol: "list.clipboard") { showHistory() }
+                                    .frame(height: bottom)
+                            } else if presentation.page == .numbers {
+                                KeyboardKey(label: moreNumbers ? "常用数字" : "更多符号", id: "moreNumbers",
+                                            title: moreNumbers ? "123" : "#+=") { moreNumbers.toggle() }.frame(height: bottom)
+                            } else {
+                                KeyboardKey(label: "搜索历史", id: "openSearch", symbol: "magnifyingglass") { openSearch() }
                                     .frame(height: bottom)
                             }
                             KeyboardKey(label: "退格", id: "keyboardBackspace", symbol: "delete.left", fontSize: 22, action: backspace)
@@ -163,8 +169,6 @@ struct KeyboardHistory: View {
         case .numbers:
             VStack(spacing: gap) {
                 keyRows(moreNumbers ? ["[]{}#%^*+=", "_\\|~<>€£¥", ".,?!:;\"'"] : ["1234567890", "-/:;()¥&@\"", ".,?!'。？！"])
-                Button(moreNumbers ? "123" : "#+=") { moreNumbers.toggle() }
-                    .font(.subheadline.bold()).frame(maxWidth: .infinity).frame(height: 26).buttonStyle(.borderless)
             }
         case .emoji:
             let names = ["表情", "手势", "生活", "符号"]

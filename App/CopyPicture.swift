@@ -1,5 +1,6 @@
 import AVFoundation
 import AVKit
+import os
 import UIKit
 
 @MainActor
@@ -11,7 +12,7 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
     var stopped: (() -> Void)?
     var failed: ((String) -> Void)?
     private var waiting = false
-    private var paused = false
+    private nonisolated let paused = OSAllocatedUnfairLock(initialState: false)
     private var timeout: Task<Void, Never>?
     var supported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
 
@@ -26,7 +27,7 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
         pip.requiresLinearPlayback = true
         controller = pip
         waiting = true
-        paused = false
+        paused.withLock { $0 = false }
         render(count: 0)
         readiness = pip.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] _, _ in
             Task { @MainActor in self?.startIfReady() }
@@ -37,7 +38,7 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
             self.failed?("小窗没有启动。请在前台点「开始连拷」重试，并检查系统画中画设置。")
         }
     }
-    private func startIfReady() {
+    func startIfReady() {
         guard waiting, let controller, controller.isPictureInPicturePossible,
               UIApplication.shared.applicationState == .active else { return }
         waiting = false
@@ -54,28 +55,36 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
         pip?.stopPictureInPicture()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
-    func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        timeout?.cancel()
-        started?()
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        Task { @MainActor in
+            guard self.controller === controller else { return }
+            timeout?.cancel()
+            started?()
+        }
     }
-    func pictureInPictureControllerWillStopPictureInPicture(_ controller: AVPictureInPictureController) { stopped?() }
-    func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
-        failed?("画中画启动失败：" + error.localizedDescription)
+    nonisolated func pictureInPictureControllerWillStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        Task { @MainActor in if self.controller === controller { stopped?() } }
     }
-    func pictureInPictureControllerTimeRangeForPlayback(_ controller: AVPictureInPictureController) -> CMTimeRange {
+    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        Task { @MainActor in if self.controller === controller { failed?("画中画启动失败：" + error.localizedDescription) } }
+    }
+    nonisolated func pictureInPictureControllerTimeRangeForPlayback(_ controller: AVPictureInPictureController) -> CMTimeRange {
         CMTimeRange(start: .zero, duration: .positiveInfinity)
     }
-    func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool { paused }
-    func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
-        paused = !playing
-        controller.invalidatePlaybackState()
+    nonisolated func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool { paused.withLock { $0 } }
+    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
+        Task { @MainActor in
+            guard self.controller === controller else { return }
+            paused.withLock { $0 = !playing }
+            controller.invalidatePlaybackState()
+        }
     }
-    func pictureInPictureController(_ controller: AVPictureInPictureController, didTransitionToRenderSize newRenderSize: CMVideoDimensions) {}
-    func pictureInPictureController(_ controller: AVPictureInPictureController, skipByInterval skipInterval: CMTime, completion completionHandler: @escaping () -> Void) { completionHandler() }
-    func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(_ controller: AVPictureInPictureController) -> Bool { true }
+    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, didTransitionToRenderSize newRenderSize: CMVideoDimensions) {}
+    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, skipByInterval skipInterval: CMTime, completion completionHandler: @escaping () -> Void) { completionHandler() }
+    nonisolated func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(_ controller: AVPictureInPictureController) -> Bool { true }
 
     func render(count: Int) {
-        guard !paused else { return }
+        guard !paused.withLock({ $0 }) else { return }
         let size = CGSize(width: 320, height: 112)
         var buffer: CVPixelBuffer?
         let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
@@ -106,8 +115,10 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
         var sample: CMSampleBuffer?
         guard CMSampleBufferCreateReadyWithImageBuffer(allocator: nil, imageBuffer: buffer, formatDescription: format,
                                                        sampleTiming: &timing, sampleBufferOut: &sample) == noErr, let sample else { return }
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true) as? [NSMutableDictionary] {
-            attachments.first?[kCMSampleAttachmentKey_DisplayImmediately] = true
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true), CFArrayGetCount(attachments) > 0 {
+            let flags = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
+            CFDictionarySetValue(flags, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                                 Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
         let renderer = layer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
