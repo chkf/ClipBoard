@@ -9,6 +9,7 @@ final class ClipboardSession: ObservableObject {
     @Published private(set) var copied = 0
     @Published private(set) var message: String?
     @Published private(set) var fullAccess = false
+    @Published private(set) var query = ""
     private(set) var store: HistoryStore?
     private let keyboardAccess: (() -> Bool)?
     private let open: (Bool) async throws -> HistoryStore
@@ -17,6 +18,7 @@ final class ClipboardSession: ObservableObject {
     private var captureStamp: PasteStamp?
     private var notification: NSObjectProtocol?
     private var generation = UUID()
+    private var listGeneration = UUID()
     private var failedStamp: PasteStamp?
     private var verifiedStamp: PasteStamp?
     private var revision = -1
@@ -66,6 +68,8 @@ final class ClipboardSession: ObservableObject {
         failedStamp = nil
         verifiedStamp = nil
         revision = -1
+        query = ""
+        listGeneration = UUID()
         lastPrune = .distantPast
         store = nil
         loaded = false
@@ -138,11 +142,12 @@ final class ClipboardSession: ObservableObject {
 
     @discardableResult
     private func refresh(_ store: HistoryStore, cycle: UUID) async throws -> HistoryState {
+        let list = listGeneration
         let state = try await store.state()
-        guard generation == cycle, state.revision > revision else { return state }
+        guard generation == cycle, list == listGeneration, state.revision > revision else { return state }
         let limit = max(60, rows.count)
-        let page = try await store.page(limit: limit)
-        guard generation == cycle, state.revision > revision else { return state }
+        let page = try await store.page(limit: limit, matching: query)
+        guard generation == cycle, list == listGeneration, state.revision > revision else { return state }
         settings = state.settings
         rows = page
         pageEnd = page.count < limit
@@ -151,14 +156,33 @@ final class ClipboardSession: ObservableObject {
         return state
     }
 
+    func filter(_ text: String) {
+        let term = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard term != query else { return }
+        listGeneration = UUID()
+        query = term
+        rows = []
+        paging = false
+        pageEnd = false
+        revision = -1
+        loaded = false
+        let cycle = generation
+        if let store {
+            Task {
+                do { _ = try await refresh(store, cycle: cycle) }
+                catch { if generation == cycle { message = error.localizedDescription } }
+            }
+        }
+    }
+
     func nextPage(after row: ClipRow) async {
         guard row.id == rows.last?.id, !pageEnd, !paging, let store else { return }
-        let cycle = generation, startingRevision = revision
+        let cycle = generation, list = listGeneration, startingRevision = revision
         paging = true
-        defer { if generation == cycle { paging = false } }
+        defer { if generation == cycle, list == listGeneration { paging = false } }
         do {
-            let page = try await store.page(after: row)
-            guard generation == cycle, revision == startingRevision, rows.last?.id == row.id else { return }
+            let page = try await store.page(after: row, matching: query)
+            guard generation == cycle, list == listGeneration, revision == startingRevision, rows.last?.id == row.id else { return }
             rows.append(contentsOf: page)
             pageEnd = page.count < 60
         } catch { if generation == cycle { message = error.localizedDescription } }

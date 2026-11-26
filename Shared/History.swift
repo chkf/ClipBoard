@@ -8,6 +8,8 @@ struct ClipRow: Identifiable, Equatable {
     let preview: String
     let isImage: Bool
     let updated: Double
+    var pinnedAt: Double = 0
+    var isPinned: Bool { pinnedAt > 0 }
 }
 
 struct ClipBody {
@@ -71,6 +73,7 @@ struct HistoryState {
 
 actor HistoryStore {
     private let db: Database
+    private let supportsPins: Bool
 
     static func shared(readOnly: Bool = false) async throws -> HistoryStore {
         do {
@@ -95,7 +98,11 @@ actor HistoryStore {
         }
         let url = directory.appendingPathComponent("History.sqlite3")
         db = try Database(url: url, readOnly: readOnly)
-        guard !readOnly else { return }
+        if readOnly {
+            supportsPins = try !db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pins'") { $0.integer(0) }.isEmpty
+            return
+        }
+        supportsPins = true
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path)
         let database = db
         try database.transaction {
@@ -105,6 +112,7 @@ actor HistoryStore {
                     is_image INTEGER NOT NULL, created REAL NOT NULL, updated REAL NOT NULL)
                 """)
             try database.execute("CREATE INDEX IF NOT EXISTS recency ON clips(updated DESC, id DESC)")
+            try database.execute("CREATE TABLE IF NOT EXISTS pins (id TEXT PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE, pinned REAL NOT NULL)")
             try database.execute("""
                 CREATE TABLE IF NOT EXISTS bodies (
                     id TEXT PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE, uti TEXT NOT NULL,
@@ -131,16 +139,25 @@ actor HistoryStore {
         return state
     }
 
-    func page(after cursor: ClipRow? = nil, limit: Int = 60) throws -> [ClipRow] {
-        var sql = "SELECT id,preview,is_image,updated FROM clips "
+    func page(after cursor: ClipRow? = nil, limit: Int = 60, matching query: String = "") throws -> [ClipRow] {
+        let rank = supportsPins ? "COALESCE(p.pinned,0)" : "0.0"
+        var sql = "SELECT c.id,c.preview,c.is_image,c.updated," + rank + " FROM clips c "
+        if supportsPins { sql += "LEFT JOIN pins p ON p.id=c.id " }
+        var conditions: [String] = []
         var values: [SQLValue] = []
-        if let cursor {
-            sql += "WHERE (updated,id) < (?,?) "
-            values = [.real(cursor.updated), .text(cursor.id)]
+        if !query.isEmpty {
+            sql += "JOIN bodies b ON b.id=c.id "
+            conditions.append("(CASE WHEN c.is_image=1 THEN instr('图片 image',lower(?))>0 ELSE instr(lower(CAST(b.body AS TEXT)),lower(?))>0 OR clipboard_pinyin(c.preview,?) END)")
+            values += [.text(query), .text(query), .text(query)]
         }
-        sql += "ORDER BY updated DESC,id DESC LIMIT ?"
+        if let cursor {
+            conditions.append("(" + rank + ",c.updated,c.id) < (?,?,?)")
+            values += [.real(cursor.pinnedAt), .real(cursor.updated), .text(cursor.id)]
+        }
+        if !conditions.isEmpty { sql += "WHERE " + conditions.joined(separator: " AND ") + " " }
+        sql += "ORDER BY 5 DESC,c.updated DESC,c.id DESC LIMIT ?"
         return try db.query(sql, values + [.integer(limit)]) {
-            ClipRow(id: $0.text(0), preview: $0.text(1), isImage: $0.integer(2) != 0, updated: $0.real(3))
+            ClipRow(id: $0.text(0), preview: $0.text(1), isImage: $0.integer(2) != 0, updated: $0.real(3), pinnedAt: $0.real(4))
         }
     }
 
@@ -212,9 +229,26 @@ actor HistoryStore {
         }
     }
 
+    func pin(_ id: String, enabled: Bool, now: Date = Date()) throws {
+        try db.transaction {
+            if enabled {
+                try db.execute("INSERT OR IGNORE INTO pins SELECT id,? FROM clips WHERE id=?", [.real(now.timeIntervalSince1970), .text(id)])
+            } else {
+                try db.execute("DELETE FROM pins WHERE id=?", [.text(id)])
+            }
+            try bumpRevision()
+        }
+    }
+
+    func clearUnpinned() throws {
+        try db.transaction {
+            if try db.execute("DELETE FROM clips WHERE id NOT IN (SELECT id FROM pins)") > 0 { try bumpRevision() }
+        }
+    }
+
     private func expire(days: Int, now: Date) throws {
         let cutoff = now.timeIntervalSince1970 - Double(days) * 86_400
-        if try db.execute("DELETE FROM clips WHERE updated<=?", [.real(cutoff)]) > 0 { try bumpRevision() }
+        if try db.execute("DELETE FROM clips WHERE updated<=? AND id NOT IN (SELECT id FROM pins)", [.real(cutoff)]) > 0 { try bumpRevision() }
     }
 
     func prune(now: Date = Date()) throws {

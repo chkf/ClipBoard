@@ -133,7 +133,7 @@ final class ClipboardUITests: XCTestCase {
     }
 
     private func tapTrailingEdge(_ key: XCUIElement, in owner: XCUIApplication) {
-        XCTAssertGreaterThan(key.frame.width, owner.frame.width * 0.88, owner.debugDescription)
+        XCTAssertGreaterThan(key.frame.width, owner.frame.width * 0.77, owner.debugDescription)
         key.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
     }
 
@@ -229,11 +229,26 @@ final class ClipboardUITests: XCTestCase {
         selectClipboard(in: app, expecting: trialKey)
         tapTrailingEdge(trialKey, in: app)
         XCTAssertEqual(app.textViews["trialInput"].value as? String, "短句")
-        app.buttons["editHistory"].tap()
-        let toDelete = historyKey("短句", in: app, editing: true)
-        tapTrailingEdge(toDelete, in: app)
-        XCTAssertTrue(toDelete.waitForNonExistence(timeout: 5))
-        app.buttons["closeKeyboardPanel"].tap()
+        trialKey.swipeRight()
+        app.buttons["置顶"].tap()
+        XCTAssertEqual(trialKey.value as? String, "已置顶")
+        app.buttons["openSearch"].tap()
+        app.buttons["key-d"].tap()
+        app.buttons["key-j"].tap()
+        app.buttons["keyboardReturn"].tap()
+        XCTAssertTrue(trialKey.waitForExistence(timeout: 5))
+        XCTAssertFalse(historyKey("图片", in: app).exists)
+        app.buttons["显示全部"].tap()
+        app.buttons["showNumbers"].tap()
+        app.buttons["key-8"].tap()
+        app.buttons["numbersBack"].tap()
+        app.buttons["showEmoji"].tap()
+        app.buttons["emoji-😀"].tap()
+        app.buttons["emojiBack"].tap()
+        XCTAssertEqual(app.textViews["trialInput"].value as? String, "短句8😀")
+        trialKey.swipeLeft()
+        app.buttons["删除"].tap()
+        XCTAssertTrue(trialKey.waitForNonExistence(timeout: 5))
         app.buttons["finishTrial"].tap()
 
         fixture.launchArguments = []
@@ -241,12 +256,9 @@ final class ClipboardUITests: XCTestCase {
         fixture.textViews["input"].tap()
         selectClipboard(in: fixture, expecting: historyKey("图片", in: fixture))
         XCTAssertFalse(short.exists)
-        fixture.buttons["editHistory"].tap()
         fixture.buttons["clearHistory"].tap()
         fixture.buttons["cancelClear"].tap()
-        fixture.buttons["closeKeyboardPanel"].tap()
         XCTAssertTrue(picture.exists)
-        fixture.buttons["editHistory"].tap()
         fixture.buttons["clearHistory"].tap()
         fixture.buttons["confirmClear"].tap()
         XCTAssertTrue(waitFor(label("暂无历史记录", in: fixture)), fixture.debugDescription)

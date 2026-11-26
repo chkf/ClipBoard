@@ -23,6 +23,31 @@ final class HistoryTests: XCTestCase {
                                 now: start.addingTimeInterval(Double(day) * 86_400))
     }
 
+    func testPinSearchAndRetentionSurviveReopening() async throws {
+        let long = String(repeating: "字", count: 260) + "NeEdLe"
+        try await capture(.text("短句"), 1)
+        try await capture(.text(long), 2)
+        let first = try await store.page(matching: "duanju")
+        let pinned = try XCTUnwrap(first.first)
+        try await store.pin(pinned.id, enabled: true, now: start)
+        let reopened = try HistoryStore(directory: directory)
+        let page = try await reopened.page(limit: 1)
+        XCTAssertTrue(page[0].isPinned)
+        let next = try await reopened.page(after: page[0], limit: 1)
+        let found = try await reopened.page(matching: "needle")
+        XCTAssertEqual(next.first?.id, found.first?.id)
+        let initials = try await reopened.page(matching: "dj")
+        XCTAssertEqual(initials.first?.id, pinned.id)
+        try await reopened.prune(now: start.addingTimeInterval(120 * 86400))
+        try await reopened.clearUnpinned()
+        let remaining = try await reopened.page()
+        XCTAssertEqual(remaining.map(\.id), [pinned.id])
+        try await reopened.pin(pinned.id, enabled: false)
+        try await reopened.clearUnpinned()
+        let empty = try await reopened.page()
+        XCTAssertTrue(empty.isEmpty)
+    }
+
     func testCompleteTextIdentityRecopyAndReopen() async throws {
         let prefix = String(repeating: "字", count: 260)
         let text = prefix + "\n  code\0\n"

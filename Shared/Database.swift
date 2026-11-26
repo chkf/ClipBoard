@@ -43,6 +43,25 @@ final class Database {
             throw HistoryError.database(code)
         }
         handle = connection
+        let registration = sqlite3_create_function_v2(connection, "clipboard_pinyin", 2, SQLITE_UTF8 | SQLITE_DETERMINISTIC, nil, { result, _, argv in
+            guard let argv, let key = sqlite3_value_text(argv[1]), let source = sqlite3_value_text(argv[0]) else {
+                sqlite3_result_int(result, 0)
+                return
+            }
+            let needle = String(cString: key).lowercased().replacingOccurrences(of: " ", with: "")
+            let preview = String(cString: source)
+            guard !needle.isEmpty, needle.utf8.allSatisfy({ (97...122).contains($0) }),
+                  preview.unicodeScalars.contains(where: { (0x3400...0x9fff).contains($0.value) }),
+                  let transliterated = preview.applyingTransform(.mandarinToLatin, reverse: false) else {
+                sqlite3_result_int(result, 0)
+                return
+            }
+            let words = transliterated.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            let found = words.joined().contains(needle) || String(words.compactMap(\.first)).contains(needle)
+            sqlite3_result_int(result, found ? 1 : 0)
+        }, nil, nil, nil)
+        guard registration == SQLITE_OK else { throw HistoryError.database(registration) }
         sqlite3_busy_timeout(connection, 3_000)
         try execute("PRAGMA foreign_keys = ON")
         if !readOnly {
