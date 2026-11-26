@@ -6,13 +6,6 @@ enum SystemPasteboard {
         PasteStamp(boot: PasteStamp.systemBoot, count: UIPasteboard.general.changeCount)
     }
 
-    @MainActor static func plainText() -> String? {
-        let board = UIPasteboard.general
-        guard !board.hasImages, board.hasStrings, !board.contains(pasteboardTypes: [UTType.fileURL.identifier]),
-              let value = board.string, !value.isEmpty else { return nil }
-        return value
-    }
-
     // UIKit publishes providers first; representations and image decoding load off the UI thread.
     @MainActor static func providers() throws -> [NSItemProvider]? {
         let board = UIPasteboard.general
@@ -59,7 +52,7 @@ enum SystemPasteboard {
         return nil
     }
 
-    private static func representation(_ type: String, from provider: NSItemProvider) async throws -> Data {
+    static func representation(_ type: String, from provider: NSItemProvider) async throws -> Data {
         let progress = Progress(totalUnitCount: 1)
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()

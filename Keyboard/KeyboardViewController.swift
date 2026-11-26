@@ -141,7 +141,9 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func selectionDidChange(_ textInput: UITextInput?) {
         super.selectionDidChange(textInput)
-        if visible, session.active { hostActive() }
+        DispatchQueue.main.async { [weak self] in
+            if let self, self.visible, self.session.active { self.hostActive() }
+        }
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)

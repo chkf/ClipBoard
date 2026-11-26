@@ -123,10 +123,8 @@ final class ClipboardSession: ObservableObject {
                     }
                 }
                 do {
-                    let clip: PreparedClip?
-                    if let text = SystemPasteboard.plainText() { clip = .text(text) }
-                    else if let providers = try SystemPasteboard.providers() { clip = try await SystemPasteboard.read(providers) }
-                    else { return }
+                    guard let providers = try SystemPasteboard.providers() else { return }
+                    let clip = try await SystemPasteboard.read(providers)
                     try Task.checkCancellation()
                     guard self.generation == cycle, self.active, SystemPasteboard.stamp == stamp else { return }
                     try await store.observe(clip, stamp: stamp, replacing: state.event)

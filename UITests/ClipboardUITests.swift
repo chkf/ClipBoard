@@ -7,13 +7,19 @@ final class ClipboardUITests: XCTestCase {
     private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     private let text = "Clipboard UI fixture\nsecond line\nthird line"
 
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() {
+        continueAfterFailure = false
+        addUIInterruptionMonitor(withDescription: "Allow inter-app paste") { alert in
+            let permission = alert.buttons.matching(NSPredicate(format: "label IN %@", ["Allow Paste", "允许粘贴"])).firstMatch
+            guard permission.exists else { return false }
+            permission.tap()
+            return true
+        }
+    }
 
     private func allowPasteIfRequested() {
-        for host in [springboard, app, fixture] {
-            let allow = host.buttons.matching(NSPredicate(format: "label IN %@", ["Allow Paste", "允许粘贴"])).firstMatch
-            if allow.exists { allow.tap(); return }
-        }
+        let allow = springboard.alerts.buttons.matching(NSPredicate(format: "label IN %@", ["Allow Paste", "允许粘贴"])).firstMatch
+        if allow.waitForExistence(timeout: 0.4) { allow.tap() }
     }
 
     private func waitFor(_ element: XCUIElement, seconds: Double = 15) -> Bool {
@@ -53,9 +59,8 @@ final class ClipboardUITests: XCTestCase {
         let expected = type.capitalized + " copied"
         XCTAssertTrue(button.waitForExistence(timeout: 8), fixture.debugDescription)
         button.tap()
-        let status = fixture.staticTexts["copyStatus"]
-        let written = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", expected), object: status)
-        XCTAssertEqual(XCTWaiter.wait(for: [written], timeout: 8), .completed, fixture.debugDescription)
+        let status = fixture.staticTexts.matching(identifier: "copyStatus").matching(NSPredicate(format: "label == %@", expected)).firstMatch
+        XCTAssertTrue(waitFor(status, seconds: 12), fixture.debugDescription)
     }
 
     private func enableKeyboard() {
@@ -102,7 +107,7 @@ final class ClipboardUITests: XCTestCase {
 
     @discardableResult
     private func selectClipboard(in owner: XCUIApplication, expecting entry: XCUIElement) -> Bool {
-        if waitFor(entry, seconds: 10) { return true }
+        if waitFor(entry, seconds: 3) { return true }
         let globeLabels = ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "下一个键盘", "切换键盘"]
         let globe = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
             globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
@@ -299,7 +304,7 @@ final class ClipboardUITests: XCTestCase {
             let keyboard = fixture.keyboards.firstMatch
             XCTAssertTrue(keyboard.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch.waitForExistence(timeout: 8))
             let native = keyboard.descendants(matching: .any).matching(NSPredicate(
-                format: "label IN[c] %@ OR identifier IN[c] %@", [name, translated], [name, translated])).firstMatch
+                format: "label IN[c] %@ OR identifier IN[c] %@", [name, translated], ["Return", name, translated])).firstMatch
             let nativeKey = try XCTUnwrap(native.exists ? native : keyboard.keys.allElementsBoundByIndex.filter {
                 $0.frame.midX > fixture.frame.width * 0.80 && $0.frame.width > 55
             }.max(by: { $0.frame.midY < $1.frame.midY }))

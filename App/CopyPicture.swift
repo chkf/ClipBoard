@@ -85,6 +85,9 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
 
     func render(count: Int) {
         guard !paused.withLock({ $0 }) else { return }
+        let renderer = layer.sampleBufferRenderer
+        if renderer.status == .failed { renderer.flush() }
+        guard renderer.status == .unknown || renderer.isReadyForMoreMediaData else { return }
         let size = CGSize(width: 320, height: 112)
         var buffer: CVPixelBuffer?
         let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
@@ -120,8 +123,6 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
             CFDictionarySetValue(flags, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
                                  Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
-        let renderer = layer.sampleBufferRenderer
-        if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
     }
 }

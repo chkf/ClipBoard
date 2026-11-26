@@ -47,10 +47,14 @@ import UIKit
         board.setItems([[type: token]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
         return token
     }
-    static func keyboardProof(for ticket: CaptureTicket, challenge: Data) -> Data {
+    private static func payload(_ board: UIPasteboard?) async throws -> Data? {
+        guard let provider = board?.itemProviders.first(where: { $0.hasItemConformingToTypeIdentifier(type) }) else { return nil }
+        return try await SystemPasteboard.representation(type, from: provider)
+    }
+    static func keyboardProof(for ticket: CaptureTicket, challenge: Data) async -> Data {
         let secret: Data?
         if let known = try? Self.secret(), ticket.authenticates(known) { secret = known }
-        else { secret = board("invitation", key: ticket.secret, create: false)?.data(forPasteboardType: type) }
+        else { secret = try? await payload(board("invitation", key: ticket.secret, create: false)) }
         guard let secret, secret.count == 32 else { return Data() }
         return Data(HMAC<SHA256>.authenticationCode(for: challenge, using: SymmetricKey(data: secret)))
     }
@@ -60,8 +64,8 @@ import UIKit
         let sealed = try ChaChaPoly.seal(encoder.encode(value), using: SymmetricKey(data: key), authenticating: Data(channel.utf8))
         board.setItems([[type: sealed.combined]], options: [.localOnly: true])
     }
-    private static func get<T: Decodable>(_ result: T.Type, from board: UIPasteboard, key: Data, channel: String) throws -> T? {
-        guard let encrypted = board.data(forPasteboardType: type), encrypted.count <= 2 * limit else { return nil }
+    private static func get<T: Decodable>(_ result: T.Type, from board: UIPasteboard, key: Data, channel: String) async throws -> T? {
+        guard let encrypted = try await payload(board), encrypted.count <= 2 * limit else { return nil }
         let plain = try ChaChaPoly.open(ChaChaPoly.SealedBox(combined: encrypted), using: SymmetricKey(data: key), authenticating: Data(channel.utf8))
         return try PropertyListDecoder().decode(result, from: plain)
     }
@@ -69,9 +73,9 @@ import UIKit
         guard let board = board("copies", key: key, create: !encodedItems.isEmpty) else { return }
         try put(encodedItems, on: board, key: key, channel: "copies")
     }
-    static func acknowledgements(key: Data) throws -> [UUID] {
+    static func acknowledgements(key: Data) async throws -> [UUID] {
         guard let board = board("received", key: key, create: false) else { return [] }
-        return try get([UUID].self, from: board, key: key, channel: "received") ?? []
+        return try await get([UUID].self, from: board, key: key, channel: "received") ?? []
     }
     @MainActor final class Reader {
         private var lastDigest: Data?
@@ -83,14 +87,14 @@ import UIKit
             guard checkedCount != count || Date().timeIntervalSince(checkedAt) >= 8 else { return }
             checkedCount = count
             checkedAt = Date()
-            guard let encrypted = source.data(forPasteboardType: type), encrypted.count <= 2 * limit else { return }
+            guard let encrypted = try await payload(source), encrypted.count <= 2 * limit else { return }
             let digest = Data(SHA256.hash(data: encrypted))
             guard digest != lastDigest else { return }
             let unsealed = try ChaChaPoly.open(ChaChaPoly.SealedBox(combined: encrypted), using: SymmetricKey(data: key),
                                                 authenticating: Data("copies".utf8))
             let items = try PropertyListDecoder().decode([Data].self, from: unsealed)
             guard items.count <= maximumItems else { return }
-            var receipts = try acknowledgements(key: key)
+            var receipts = try await acknowledgements(key: key)
             for data in items {
                 let item = try PropertyListDecoder().decode(CapturedItem.self, from: data)
                 try await store.importCapture(item)

@@ -127,28 +127,20 @@ import UIKit
         guard UIApplication.shared.isProtectedDataAvailable else { willLock(); return }
         let stamp = SystemPasteboard.stamp
         guard stamp != observed, failedAt.map({ Date().timeIntervalSince($0) >= 1 }) ?? true else { return }
-        let text: String?
-        var providers: [NSItemProvider]?
-        if let value = SystemPasteboard.plainText() {
-            text = value
-        } else {
-            text = nil
-            do { providers = try SystemPasteboard.providers() }
-            catch { failedAt = Date(); message = error.localizedDescription; return }
-            guard providers != nil else { return }
-        }
-        // Snapshot this copy before the next event can replace the general pasteboard.
+        let providers: [NSItemProvider]
+        do {
+            guard let current = try SystemPasteboard.providers() else { return }
+            providers = current
+        } catch { failedAt = Date(); message = error.localizedDescription; return }
+        // Begin loading each snapshot immediately. Only disk commits wait for the preceding copy.
         let captured = Date(), cycle = sessionID
+        let prepared = Task { try await SystemPasteboard.read(providers) }
         let previous = writes
         observed = stamp
         writes = Task { [weak self] in
             await previous?.value
             do {
-                let clip: PreparedClip?
-                if let text { clip = .text(text) }
-                else if let providers { clip = try await SystemPasteboard.read(providers) }
-                else { clip = nil }
-                guard let clip else { return }
+                guard let clip = try await prepared.value else { return }
                 try await CaptureInbox.shared.save(CapturedItem(id: UUID(), date: captured, clip: clip))
                 guard let self, cycle == self.sessionID else { return }
                 self.count += 1
