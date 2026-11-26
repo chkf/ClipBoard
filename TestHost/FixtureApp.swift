@@ -5,22 +5,42 @@ import UIKit
 @main
 struct FixtureApp: App {
     @State private var input = ""
+    @State private var copyStatus = ""
     var body: some Scene {
         WindowGroup {
             VStack {
                 Button("Copy text") {
-                    UIPasteboard.general.string = "Clipboard UI fixture\nsecond line\nthird line"
+                    let board = UIPasteboard.general
+                    let value = "Clipboard UI fixture\nsecond line\nthird line"
+                    let before = board.changeCount
+                    board.string = value
+                    confirmWrite("Text copied", after: before) { board.string == value }
                 }
                 Button("Copy image") {
                     let image = UIGraphicsImageRenderer(size: CGSize(width: 48, height: 36)).image { ctx in
                         UIColor.orange.setFill()
                         ctx.fill(CGRect(x: 0, y: 0, width: 48, height: 36))
                     }
-                    UIPasteboard.general.setData(image.pngData()!, forPasteboardType: "public.png")
+                    let board = UIPasteboard.general
+                    let data = image.pngData()!
+                    let before = board.changeCount
+                    board.setData(data, forPasteboardType: "public.png")
+                    confirmWrite("Image copied", after: before) { board.data(forPasteboardType: "public.png") == data }
                 }
+                Text(verbatim: copyStatus).accessibilityIdentifier("copyStatus")
                 KeyboardField(text: $input).frame(height: 100).border(.secondary)
                 Text(verbatim: input).accessibilityIdentifier("inserted")
             }.padding()
+        }
+    }
+
+    private func confirmWrite(_ success: String, after previousCount: Int, matches: @escaping () -> Bool) {
+        Task { @MainActor in
+            let deadline = Date().addingTimeInterval(3)
+            while UIPasteboard.general.changeCount == previousCount, Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+            copyStatus = UIPasteboard.general.changeCount != previousCount && matches() ? success : "Write failed"
         }
     }
 }

@@ -67,6 +67,12 @@ final class HistoryTests: XCTestCase {
         try await capture(.text("after reboot"), 1, boot: 300)
         rows = try await store.page()
         XCTAssertEqual(rows.first?.preview, "after reboot")
+        try await capture(.text("different contents in the same run-loop batch"), 1, boot: 300, day: 1)
+        let batched = try await store.page()
+        XCTAssertEqual(batched.first?.preview, "different contents in the same run-loop batch")
+        try await capture(.text("different contents in the same run-loop batch"), 1, boot: 300, day: 2)
+        let repeated = try await store.page()
+        XCTAssertEqual(repeated, batched)
     }
 
     func testConcurrentConnectionsAndDelayedReads() async throws {

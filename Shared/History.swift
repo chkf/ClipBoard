@@ -159,7 +159,8 @@ actor HistoryStore {
     func observe(_ clip: PreparedClip?, stamp: PasteStamp, replacing expected: PasteEvent?, now: Date = Date()) throws {
         try db.transaction {
             let previous = try state().event
-            guard previous == expected, previous?.stamp != stamp else { return }
+            guard previous == expected else { return }
+            if previous?.stamp == stamp, previous?.key == clip?.key { return }
             let uncertain = previous.map { !stamp.sameBoot(as: $0.stamp) || stamp.count < $0.stamp.count } ?? false
             if let clip, !uncertain || previous?.key != clip.key {
                 let timestamp = now.timeIntervalSince1970

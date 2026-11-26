@@ -7,9 +7,11 @@ enum SystemPasteboard {
     }
 
     // UIKit publishes providers first; representations and image decoding load off the UI thread.
-    @MainActor static func providers() throws -> [NSItemProvider] {
+    @MainActor static func providers() throws -> [NSItemProvider]? {
         let board = UIPasteboard.general
-        guard board.hasImages || board.hasStrings || board.hasURLs else { return [] }
+        // During foreground hand-off the change count can be visible before the representations.
+        // An empty type probe is cheap to retry and must not consume a copy event.
+        guard board.hasImages || board.hasStrings || board.hasURLs else { return nil }
         let providers = board.itemProviders
         guard !providers.isEmpty else { throw HistoryError.unreadable }
         return providers
@@ -67,15 +69,25 @@ enum SystemPasteboard {
 
     // Called on the storage actor while its SQLite write transaction owns the copy event.
     static func write(_ body: ClipBody) throws -> PasteStamp {
-        try DispatchQueue.main.sync {
+        let changed = DispatchSemaphore(value: 0)
+        let sample = DispatchQueue.main.sync {
             let board = UIPasteboard.general
             let before = board.changeCount
+            let observer = NotificationCenter.default.addObserver(forName: UIPasteboard.changedNotification,
+                                                                   object: board, queue: nil) { _ in changed.signal() }
             let item: [String: Any]
             if let text = body.text { item = [body.type: text] }
             else { item = [body.type: body.data] }
             board.setItems([item], options: [.localOnly: true])
-            guard board.changeCount != before else { throw HistoryError.unreadable }
-            return stamp
+            return (before: before, after: stamp, observer: observer)
         }
+        defer { NotificationCenter.default.removeObserver(sample.observer) }
+        if sample.after.count != sample.before { return sample.after }
+        // UIKit may defer incrementing changeCount until the end of the current event loop.
+        // Wait on the storage actor, leaving the UI thread free to deliver the change.
+        _ = changed.wait(timeout: .now() + 0.7)
+        let published = DispatchQueue.main.sync { stamp }
+        guard published.count != sample.before else { throw HistoryError.unreadable }
+        return published
     }
 }

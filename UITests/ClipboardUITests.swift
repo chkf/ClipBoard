@@ -30,9 +30,14 @@ final class ClipboardUITests: XCTestCase {
     }
 
     private func settingsRow(_ title: String, in settings: XCUIApplication) -> XCUIElement {
-        let row = settings.staticTexts[title].firstMatch
+        let row = settings.cells.containing(.staticText, identifier: title).firstMatch
+        let button = settings.buttons[title].firstMatch
+        let viewport = settings.frame.insetBy(dx: 8, dy: 76)
         for _ in 0..<5 {
-            if row.exists && row.isHittable { return row }
+            for candidate in [row, button] where candidate.exists {
+                let rect = candidate.frame
+                if !rect.isEmpty, viewport.contains(CGPoint(x: rect.midX, y: rect.midY)) { return candidate }
+            }
             settings.swipeUp()
         }
         return row
@@ -42,11 +47,22 @@ final class ClipboardUITests: XCTestCase {
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
     }
 
+    private func copyInFixture(_ type: String) {
+        XCTAssertTrue(fixture.wait(for: .runningForeground, timeout: 8))
+        let button = fixture.buttons["Copy " + type]
+        let expected = type.capitalized + " copied"
+        button.tap()
+        let status = fixture.staticTexts["copyStatus"]
+        let written = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", expected), object: status)
+        XCTAssertEqual(XCTWaiter.wait(for: [written], timeout: 8), .completed, fixture.debugDescription)
+    }
+
     func testEnabledKeyboardInHostTextField() {
         app.launch()
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
         settings.launch()
         settingsRow("General", in: settings).tap()
+        XCTAssertTrue(settings.navigationBars["General"].waitForExistence(timeout: 8), settings.debugDescription)
         settingsRow("Keyboard", in: settings).tap()
         let installed = settings.cells["KEYBOARDS"]
         XCTAssertTrue(installed.waitForExistence(timeout: 5), settings.debugDescription)
@@ -77,7 +93,7 @@ final class ClipboardUITests: XCTestCase {
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: fullAccess)
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, settings.debugDescription)
         fixture.launch()
-        fixture.buttons["Copy text"].tap()
+        copyInFixture("text")
         fixture.textViews["input"].tap()
         let entry = fixture.buttons[text]
         if !waitFor(entry, seconds: 8) && fixture.keyboards.keys.count > 2 {
@@ -104,7 +120,7 @@ final class ClipboardUITests: XCTestCase {
         app.alerts.buttons["确认清空"].tap()
         app.buttons["closeSettings"].tap()
         fixture.launch()
-        fixture.buttons["Copy text"].tap()
+        copyInFixture("text")
         app.activate()
         let row = label(text, in: app)
         XCTAssertTrue(waitFor(row), app.debugDescription)
@@ -115,7 +131,7 @@ final class ClipboardUITests: XCTestCase {
         row.tap()
         XCTAssertTrue(app.staticTexts["已复制"].waitForExistence(timeout: 3) || label("已复制", in: app).exists)
         fixture.activate()
-        fixture.buttons["Copy image"].tap()
+        copyInFixture("image")
         app.activate()
         let picture = label("图片", in: app)
         XCTAssertTrue(waitFor(picture), app.debugDescription)

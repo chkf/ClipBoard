@@ -4,6 +4,11 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish this version from main after the simulator and device checks pass
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,7 +42,7 @@ jobs:
       - name: Test app and keyboard on iOS 26
         if: matrix.task == 'simulator'
         env:
-          CLIPBOARD_TEST_APPEARANCE: ${{ github.ref_type == 'tag' && 'dark' || 'light' }}
+          CLIPBOARD_TEST_APPEARANCE: ${{ (github.ref_type == 'tag' || inputs.publish) && 'dark' || 'light' }}
         run: bash scripts/test-ios.sh
       - name: Build and verify device IPA
         if: matrix.task == 'ipa'
@@ -70,7 +75,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
   release:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -86,6 +91,22 @@ jobs:
         run: |
           cd release
           sha256sum --check *.sha256
+          packages=(Clipboard-*-resign.ipa)
+          test "${#packages[@]}" = 1
+          version="${packages[0]#Clipboard-}"
+          version="${version%-resign.ipa}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v$version"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            test "$GITHUB_REF_NAME" = "$tag"
+          else
+            refs="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" --jq '.[].ref')"
+            if ! grep -Fxq "refs/tags/$tag" <<< "$refs"; then
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref="refs/tags/$tag" -f sha="$GITHUB_SHA" > /dev/null
+            fi
+          fi
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$GITHUB_SHA"
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
           适用于 iOS 26 及以上版本。Clipboard 在主 App 或自定义键盘打开时收集文本和图片，历史及设置保存在设备上。
 
@@ -93,6 +114,6 @@ jobs:
 
           [安装、签名标识与校验说明](https://github.com/chkf/ClipBoard/blob/TAG/README.md)
           NOTES
-          sed -i "s|/blob/TAG/|/blob/$GITHUB_REF_NAME/|" "$RUNNER_TEMP/release-notes.md"
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "Clipboard $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" *.ipa *.sha256
+          sed -i "s|/blob/TAG/|/blob/$tag/|" "$RUNNER_TEMP/release-notes.md"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Clipboard $tag" --notes-file "$RUNNER_TEMP/release-notes.md" *.ipa *.sha256

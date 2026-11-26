@@ -23,6 +23,7 @@ final class ClipboardSession: ObservableObject {
     private var notification: NSObjectProtocol?
     private var generation = UUID()
     private var failedStamp: PasteStamp?
+    private var verifiedStamp: PasteStamp?
     private var revision = -1
     private var pageEnd = false
     private var paging = false
@@ -63,6 +64,7 @@ final class ClipboardSession: ObservableObject {
         captureStamp = nil
         generation = UUID()
         failedStamp = nil
+        verifiedStamp = nil
         revision = -1
         lastPrune = .distantPast
         store = nil
@@ -99,7 +101,9 @@ final class ClipboardSession: ObservableObject {
             capture?.cancel()
             capture = nil
             captureStamp = nil
-            guard state.event?.stamp != stamp, failedStamp != stamp else { return }
+            // On first appearance verify the content as well as the counter. UIKit may
+            // publish a batched counter update at the end of a foreground event loop.
+            guard failedStamp != stamp, state.event?.stamp != stamp || verifiedStamp != stamp else { return }
             captureStamp = stamp
             capture = Task { [weak self] in
                 guard let self else { return }
@@ -110,14 +114,17 @@ final class ClipboardSession: ObservableObject {
                     }
                 }
                 do {
-                    let providers = try SystemPasteboard.providers()
+                    guard let providers = try SystemPasteboard.providers() else { return }
                     let clip = try await SystemPasteboard.read(providers)
                     try Task.checkCancellation()
                     guard self.generation == cycle, SystemPasteboard.stamp == stamp else { return }
                     try await store.observe(clip, stamp: stamp, replacing: state.event)
                     guard self.generation == cycle else { return }
                     self.message = nil
-                    _ = try await self.refresh(store, cycle: cycle)
+                    let committed = try await self.refresh(store, cycle: cycle)
+                    if self.generation == cycle, committed.event == PasteEvent(stamp: stamp, key: clip?.key) {
+                        self.verifiedStamp = stamp
+                    }
                 } catch is CancellationError {
                     return
                 } catch {
