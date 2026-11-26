@@ -139,6 +139,10 @@ final class KeyboardViewController: UIInputViewController {
         super.textDidChange(textInput)
         if visible { updateTraits(); if session.active { hostActive() } }
     }
+    override func selectionDidChange(_ textInput: UITextInput?) {
+        super.selectionDidChange(textInput)
+        if visible, session.active { hostActive() }
+    }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         visible = true

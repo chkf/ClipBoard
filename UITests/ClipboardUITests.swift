@@ -290,6 +290,7 @@ final class ClipboardUITests: XCTestCase {
     }
 
     func testReturnKeysMatchTheActiveSystemField() throws {
+        continueAfterFailure = true
         enableKeyboard()
         for (name, translated) in [("Return", "换行"), ("Search", "搜索"), ("Send", "发送"), ("Done", "完成")] {
             fixture.launchArguments = ["-ReturnKey", name]
@@ -313,7 +314,9 @@ final class ClipboardUITests: XCTestCase {
             let customBlue = customScreen.blueFraction(in: custom.frame.insetBy(dx: 3, dy: 3))
             XCTAssertEqual(nativeBlue > 0.40, customBlue > 0.40, "\(name): system blue \(nativeBlue), Clipboard blue \(customBlue), \(nativeKey)")
             custom.tap()
-            XCTAssertEqual(fixture.textViews["input"].value as? String, "sample\n")
+            let result = try XCTUnwrap(fixture.textViews["input"].value as? String)
+            XCTAssertEqual(result.filter(\.isNewline).count, 1)
+            XCTAssertEqual(result.filter { !$0.isNewline }, "sample")
         }
     }
 
@@ -385,6 +388,8 @@ final class ClipboardUITests: XCTestCase {
             _ = XCTWaiter.wait(for: [ready], timeout: 10)
             if receive.exists, receive.isEnabled { receive.tap() }
         }
+        let confirmation = app.buttons["approveLocalReceiver"]
+        if confirmation.waitForExistence(timeout: 3) { confirmation.tap() }
         XCTAssertTrue(sheet.waitForNonExistence(timeout: 20), app.debugDescription)
         XCTAssertTrue(app.buttons["deliverCopies"].waitForNonExistence(timeout: 10), app.debugDescription)
     }

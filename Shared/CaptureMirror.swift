@@ -41,6 +41,19 @@ import UIKit
         let name = "net.chkf.clipboard." + SHA256.hash(data: key).hex + "." + channel
         return UIPasteboard(name: UIPasteboard.Name(rawValue: name), create: create)
     }
+    static func issueInvitation(for ticket: CaptureTicket) -> Data? {
+        guard let board = board("invitation", key: ticket.secret, create: true) else { return nil }
+        let token = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        board.setItems([[type: token]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+        return token
+    }
+    static func keyboardProof(for ticket: CaptureTicket, challenge: Data) -> Data {
+        let secret: Data?
+        if let known = try? Self.secret(), ticket.authenticates(known) { secret = known }
+        else { secret = board("invitation", key: ticket.secret, create: false)?.data(forPasteboardType: type) }
+        guard let secret, secret.count == 32 else { return Data() }
+        return Data(HMAC<SHA256>.authenticationCode(for: challenge, using: SymmetricKey(data: secret)))
+    }
     private static func put<T: Encodable>(_ value: T, on board: UIPasteboard, key: Data, channel: String) throws {
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary

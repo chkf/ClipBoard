@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Network
 import SwiftUI
 import UIKit
@@ -8,6 +9,9 @@ import UIKit
     @Published private(set) var ticket: CaptureTicket?
     @Published private(set) var done = false
     @Published private(set) var error: String?
+    @Published private(set) var needsConfirmation = false
+    private var approval: CheckedContinuation<Bool, Never>?
+    private var invitation: Data?
     private var listener: NWListener?
     private var link: CaptureLink?
     private var task: Task<Void, Never>?
@@ -29,7 +33,11 @@ import UIKit
                     guard let self, self.cycle == generation else { return }
                     switch state {
                     case .ready:
-                        if let port = listener?.port { self.ticket = CaptureTicket(port: port.rawValue, identity: identity) }
+                        if let port = listener?.port {
+                            let ticket = CaptureTicket(port: port.rawValue, identity: identity)
+                            self.invitation = CaptureMirror.issueInvitation(for: ticket)
+                            self.ticket = ticket
+                        }
                     case .failed: self.error = "未能打开本机连接，请重试。"
                     default: break
                     }
@@ -44,6 +52,19 @@ import UIKit
                         defer { link.close(); if self.cycle == generation { self.link = nil } }
                         do {
                             guard try await link.read() == Data("receive".utf8) else { return }
+                            // A host field can be seen by another selected input method. Require a
+                            // private keyboard credential, a same-team invitation or a native confirmation.
+                            let challenge = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+                            try await link.send(challenge)
+                            let proof = try await link.read()
+                            let keys = [identity, self.invitation].compactMap { $0 }
+                            let trusted = keys.contains {
+                                HMAC<SHA256>.isValidAuthenticationCode(proof, authenticating: challenge, using: SymmetricKey(data: $0))
+                            }
+                            if !trusted {
+                                self.needsConfirmation = true
+                                guard await withCheckedContinuation({ self.approval = $0 }) else { return }
+                            }
                             try await link.send(identity)
                             for file in try await CaptureInbox.shared.entries() {
                                 let filename = file.deletingPathExtension().lastPathComponent
@@ -69,7 +90,15 @@ import UIKit
             listener.start(queue: CaptureLink.queue)
         } catch { self.error = "未能打开本机连接，请重试。" }
     }
+    func answer(_ allow: Bool) {
+        needsConfirmation = false
+        let continuation = approval
+        approval = nil
+        continuation?.resume(returning: allow)
+    }
     func stop() {
+        answer(false)
+        invitation = nil
         cycle = UUID()
         task?.cancel(); task = nil
         listener?.cancel(); listener = nil
@@ -88,6 +117,11 @@ struct CaptureDeliveryView: View {
                 else if let ticket = delivery.ticket {
                     Text("首次使用时，在下方点「存入键盘」。之后会自动接收。如果出现其他输入法，请用地球键选择 Clipboard。")
                     CaptureTicketField(marker: ticket.marker).frame(height: 2).accessibilityHidden(true)
+                    if delivery.needsConfirmation {
+                        Text("请确认下方显示的是 Clipboard 键盘，再允许它接收这批记录。").font(.subheadline)
+                        Button("允许此次存入") { delivery.answer(true) }.buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("approveLocalReceiver")
+                    }
                 } else { ProgressView() }
                 Spacer()
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
@@ -99,34 +133,48 @@ struct CaptureDeliveryView: View {
     }
 }
 
-private struct CaptureTicketField: UIViewRepresentable {
+private struct CaptureTicketField: UIViewControllerRepresentable {
     let marker: String
-    func makeUIView(context: Context) -> Field {
-        let field = Field()
-        field.autocorrectionType = .no
-        field.returnKeyType = .join
-        field.textColor = .clear
-        field.tintColor = .clear
-        field.isAccessibilityElement = false
-        return field
+    func makeUIViewController(context: Context) -> Controller {
+        let controller = Controller()
+        controller.marker = marker
+        return controller
     }
-    func updateUIView(_ view: Field, context: Context) {
-        if view.text != marker {
-            view.text = marker
-            view.textContentType = UITextContentType(rawValue: marker)
-            view.activate()
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        if controller.marker != marker {
+            controller.marker = marker
+            controller.apply()
         }
     }
-    final class Field: UITextView {
-        override var textInputContextIdentifier: String? { "Clipboard.keyboard.collect" }
-        override var textInputMode: UITextInputMode? { ClipboardInputMode.enabled ?? super.textInputMode }
-        override func didMoveToWindow() { super.didMoveToWindow(); activate() }
-        func activate() {
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.window != nil else { return }
-                self.becomeFirstResponder()
-                self.selectedTextRange = self.textRange(from: self.beginningOfDocument, to: self.endOfDocument)
+    final class Controller: UIViewController {
+        var marker = ""
+        private let field = Field()
+        override func loadView() {
+            field.autocorrectionType = .no
+            field.returnKeyType = .join
+            field.textColor = .clear
+            field.tintColor = .clear
+            field.isAccessibilityElement = false
+            view = field
+            apply()
+        }
+        override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); apply() }
+        func apply() {
+            if field.text != marker {
+                field.text = marker
+                field.textContentType = UITextContentType(rawValue: marker)
+            }
+            if field.window != nil {
+                field.becomeFirstResponder()
+                field.selectedTextRange = field.textRange(from: field.beginningOfDocument, to: field.endOfDocument)
             }
         }
+    }
+    private final class Field: UITextView {
+        override var textInputContextIdentifier: String? { "Clipboard.keyboard.collect" }
+        override var textInputMode: UITextInputMode? { ClipboardInputMode.enabled ?? super.textInputMode }
+        override func insertText(_ text: String) {}
+        override func deleteBackward() {}
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool { false }
     }
 }

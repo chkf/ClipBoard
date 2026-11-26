@@ -87,6 +87,9 @@ final class CaptureLink: @unchecked Sendable {
     }
     func receiveItems(into store: HistoryStore, ticket: CaptureTicket) async throws {
         try await send(Data("receive".utf8))
+        let challenge = try await read()
+        guard challenge.count == 32 else { throw HistoryError.unreadable }
+        try await send(CaptureMirror.keyboardProof(for: ticket, challenge: challenge))
         let identity = try await read()
         guard identity.count == 32, ticket.authenticates(identity) else { throw HistoryError.unreadable }
         try await CaptureMirror.remember(identity)
