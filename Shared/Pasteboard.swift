@@ -51,12 +51,18 @@ enum SystemPasteboard {
     }
 
     private static func representation(_ type: String, from provider: NSItemProvider) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
-                if let data { continuation.resume(returning: data) }
-                else { continuation.resume(throwing: HistoryError.unreadable) }
+        let progress = Progress(totalUnitCount: 1)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                let read = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
+                    if let data { continuation.resume(returning: data) }
+                    else { continuation.resume(throwing: HistoryError.unreadable) }
+                }
+                progress.addChild(read, withPendingUnitCount: 1)
+                if progress.isCancelled { read.cancel() }
             }
-        }
+        } onCancel: { progress.cancel() }
     }
 
     // Called on the storage actor while its SQLite write transaction owns the copy event.

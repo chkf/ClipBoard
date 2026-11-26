@@ -18,6 +18,7 @@ final class ClipboardSession: ObservableObject {
     private let open: (Bool) async throws -> HistoryStore
     private var monitor: Task<Void, Never>?
     private var capture: Task<Void, Never>?
+    private var captureStamp: PasteStamp?
     private var notification: NSObjectProtocol?
     private var generation = UUID()
     private var failedStamp: PasteStamp?
@@ -56,6 +57,7 @@ final class ClipboardSession: ObservableObject {
         notification = nil
         monitor = nil
         capture = nil
+        captureStamp = nil
         generation = UUID()
         failedStamp = nil
         revision = -1
@@ -84,12 +86,22 @@ final class ClipboardSession: ObservableObject {
                 lastPrune = Date()
             }
             let state = try await refresh(store, cycle: cycle)
-            guard generation == cycle, active, mode.mayWrite, capture == nil else { return }
+            guard generation == cycle, active, mode.mayWrite else { return }
             let stamp = SystemPasteboard.stamp
+            if captureStamp == stamp { return }
+            capture?.cancel()
+            capture = nil
+            captureStamp = nil
             guard state.event?.stamp != stamp, failedStamp != stamp else { return }
+            captureStamp = stamp
             capture = Task { [weak self] in
                 guard let self else { return }
-                defer { if self.generation == cycle { self.capture = nil } }
+                defer {
+                    if self.generation == cycle, self.captureStamp == stamp {
+                        self.capture = nil
+                        self.captureStamp = nil
+                    }
+                }
                 do {
                     let providers = try SystemPasteboard.providers()
                     let clip = try await SystemPasteboard.read(providers)

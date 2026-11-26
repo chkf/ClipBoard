@@ -30,7 +30,7 @@ for bundle, info in [(app, host), (keyboard, ext)]:
     assert info["ClipboardAppGroup"] == group
     assert "arm64" in subprocess.check_output(["lipo", "-archs", binary], text=True).split()
     subprocess.run(["codesign", "--verify", "--strict", bundle], check=True)
-    entitlements = plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", "-", bundle]))
+    entitlements = plistlib.loads(subprocess.check_output(["codesign", "--display", "--entitlements", "-", "--xml", bundle]))
     assert entitlements["com.apple.security.application-groups"] == [group]
     assert not entitlements.get("get-task-allow")
     assert (bundle / "PrivacyInfo.xcprivacy").is_file()
