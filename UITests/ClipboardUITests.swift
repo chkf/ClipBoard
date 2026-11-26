@@ -95,18 +95,24 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, settings.debugDescription)
     }
 
-    private func selectClipboard(in owner: XCUIApplication, expecting entry: XCUIElement) {
-        if !waitFor(entry, seconds: 8) && owner.keyboards.keys.count > 2 {
-            let next = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
-                ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "Emoji", "下一个键盘", "切换键盘"],
-                ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
-            XCTAssertTrue(next.waitForExistence(timeout: 5), owner.debugDescription)
-            next.press(forDuration: 1.0)
-            let menuItem = owner.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard'")).firstMatch
-            if menuItem.waitForExistence(timeout: 2) { menuItem.tap() }
-            else { next.tap() }
+    @discardableResult
+    private func selectClipboard(in owner: XCUIApplication, expecting entry: XCUIElement) -> Bool {
+        if waitFor(entry, seconds: 10) { return true }
+        let globeLabels = ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "下一个键盘", "切换键盘"]
+        let globe = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
+            globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
+        let direct = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ AND value BEGINSWITH[c] 'Clipboard'", globeLabels)).firstMatch
+        if direct.exists { direct.tap() }
+        else {
+            XCTAssertTrue(globe.waitForExistence(timeout: 5), owner.debugDescription)
+            globe.press(forDuration: 1.0)
+            let menu = owner.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard' AND elementType != %d",
+                XCUIElement.ElementType.navigationBar.rawValue)).allElementsBoundByIndex
+            if let choice = menu.last(where: { $0.isHittable }) { choice.tap() }
+            else { globe.tap() }
         }
         XCTAssertTrue(waitFor(entry), owner.debugDescription)
+        return false
     }
 
     func testEnabledKeyboardInHostTextField() {
@@ -154,11 +160,18 @@ final class ClipboardUITests: XCTestCase {
         selectClipboard(in: fixture, expecting: fixture.buttons[second])
         copyInFixture("image")
         app.activate()
-        // No pairing, toolbar tap, or keyboard-switch action on this foreground session.
-        XCTAssertTrue(waitFor(finished), app.debugDescription)
+        // Transfer must start on foreground activation. The system globe is the only fallback
+        // if UIKit picked a different keyboard; a second pairing or sync button tap would fail.
+        let automatic = selectClipboard(in: app, expecting: finished)
+        XCTContext.runActivity(named: automatic ? "Foreground sync completed without a tap" : "Foreground sync completed after selecting Clipboard with the globe") { _ in }
         let secondRow = app.buttons.matching(identifier: "historyText").matching(NSPredicate(format: "label == %@", second)).firstMatch
         XCTAssertTrue(waitFor(secondRow), app.debugDescription)
         XCTAssertFalse(main.exists)
+        app.terminate()
+        app.launch()
+        let cold = selectClipboard(in: app, expecting: finished)
+        XCTContext.runActivity(named: cold ? "Cold launch synchronized without a tap" : "Cold launch synchronized after selecting Clipboard with the globe") { _ in }
+        XCTAssertTrue(secondRow.exists)
     }
 
     func testManagementWithAnotherAppsPasteboard() {

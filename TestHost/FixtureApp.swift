@@ -77,9 +77,7 @@ private struct KeyboardField: UIViewRepresentable {
 }
 
 private final class FixtureTextView: UITextView {
-    // The fresh English simulator has one enabled zh-Hans input source after Settings setup.
-    // Ask UIKit for that real system input mode when this field becomes first responder.
     override var textInputMode: UITextInputMode? {
-        UITextInputMode.activeInputModes.first { $0.primaryLanguage == "zh-Hans" } ?? super.textInputMode
+        ClipboardInputMode.enabled ?? super.textInputMode
     }
 }

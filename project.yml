@@ -66,7 +66,7 @@ targets:
   ClipboardTestHost:
     type: application
     platform: iOS
-    sources: [TestHost]
+    sources: [TestHost, Shared/ClipboardInputMode.swift]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.chkf.ClipboardTestHost

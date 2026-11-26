@@ -11,7 +11,7 @@ final class KeyboardViewController: UIInputViewController {
         if let offer = SyncInvitation(contentType?.rawValue) { return offer }
         // Some input hosts omit custom text-content types. Only examine the selected sync marker,
         // never the typed text before or after the cursor.
-        guard proxy.keyboardType == .URL, proxy.returnKeyType == .done else { return nil }
+        guard proxy.keyboardType == .default, proxy.returnKeyType == .join, proxy.autocorrectionType == .no else { return nil }
         return SyncInvitation(proxy.selectedText)
     }
     private let globe = UIButton(type: .system)

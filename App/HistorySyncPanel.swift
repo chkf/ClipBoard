@@ -43,7 +43,11 @@ struct HistorySyncPanel: View {
 private struct SyncField: UIViewRepresentable {
     let marker: String
 
-    func makeUIView(context: Context) -> SyncTextField { SyncTextField() }
+    func makeUIView(context: Context) -> SyncTextField { SyncTextField(frame: .zero, textContainer: nil) }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: SyncTextField, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 0, height: 42)
+    }
 
     func updateUIView(_ field: SyncTextField, context: Context) {
         guard field.text != marker else { return }
@@ -55,20 +59,20 @@ private struct SyncField: UIViewRepresentable {
     static func dismantleUIView(_ field: SyncTextField, coordinator: ()) { field.resignFirstResponder() }
 }
 
-private final class SyncTextField: UITextField {
+private final class SyncTextField: UITextView {
     override var textInputContextIdentifier: String? { "Clipboard.keyboard.history" }
     override var textInputMode: UITextInputMode? {
-        let candidates = UITextInputMode.activeInputModes.filter { $0.primaryLanguage == "zh-Hans" }
-        return candidates.count == 1 ? candidates[0] : super.textInputMode
+        ClipboardInputMode.enabled ?? super.textInputMode
     }
     override var accessibilityValue: String? { get { nil } set {} }
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        backgroundColor = .clear
         textColor = .clear
         tintColor = .clear
-        keyboardType = .URL
-        returnKeyType = .done
+        keyboardType = .default
+        returnKeyType = .join
         autocorrectionType = .no
         spellCheckingType = .no
         autocapitalizationType = .none
@@ -78,9 +82,10 @@ private final class SyncTextField: UITextField {
     override func didMoveToWindow() { super.didMoveToWindow(); activate() }
     override func insertText(_ text: String) {}
     override func deleteBackward() {}
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool { false }
 
     func activate() {
-        guard window != nil, let text, !text.isEmpty else { return }
+        guard window != nil, !text.isEmpty else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, window != nil else { return }
             if !isFirstResponder { becomeFirstResponder() }
