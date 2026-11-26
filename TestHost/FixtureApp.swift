@@ -10,20 +10,6 @@ struct FixtureApp: App {
     var body: some Scene {
         WindowGroup {
             VStack {
-                if ProcessInfo.processInfo.arguments.contains("-LaunchCollectionURL") {
-                    Button("Toggle Clipboard via URL") {
-                        UIApplication.shared.open(URL(string: "clipboard-collect://toggle")!)
-                    }
-                }
-                if ProcessInfo.processInfo.arguments.contains("-CollectionFixture") {
-                    ForEach(["alpha", "bravo", "charlie"], id: \.self) { word in
-                        Button("Copy " + word) {
-                            let board = UIPasteboard.general, before = board.changeCount
-                            board.string = word
-                            confirmWrite(word.capitalized + " copied", after: before) { board.string == word }
-                        }
-                    }
-                }
                 Button("Copy text") {
                     let board = UIPasteboard.general
                     let value = "Clipboard UI fixture\nsecond line\nthird line"

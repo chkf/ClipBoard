@@ -1,6 +1,29 @@
 import XCTest
 
 final class KeyboardUpgradeTests: XCTestCase {
+    func testReopeningTrialHistoryKeepsPinnedKeyboardEntries() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let text = "已存入键盘的记录"
+        let id: String
+        do {
+            let store = try HistoryStore(directory: directory)
+            try await store.observe(.text(text), stamp: PasteStamp(boot: 1, count: 1), replacing: nil)
+            let rows = try await store.page()
+            id = try XCTUnwrap(rows.first).id
+            try await store.pin(id, enabled: true)
+            let old = try Database(url: directory.appendingPathComponent("History.sqlite3"), readOnly: false)
+            try old.execute("CREATE TABLE capture_receipts (id TEXT PRIMARY KEY, received REAL NOT NULL)")
+            try old.execute("INSERT INTO capture_receipts VALUES(?,?)", [.text(UUID().uuidString), .real(1)])
+        }
+        let updated = try HistoryStore(directory: directory)
+        let rows = try await updated.page()
+        XCTAssertEqual(rows.map(\.id), [id])
+        XCTAssertTrue(try XCTUnwrap(rows.first).isPinned)
+        let body = try await updated.body(id)
+        XCTAssertEqual(body.text, text)
+    }
+
     func testOpeningVersion104KeyboardDatabasePreservesHistorySettingsAndLastCopy() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

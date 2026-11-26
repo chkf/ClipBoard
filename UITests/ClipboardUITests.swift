@@ -118,7 +118,7 @@ final class ClipboardUITests: XCTestCase {
         let globe = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
             globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
         let surface = owner.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier IN %@", ["keyboardSpace", "autoSwitch", "receiveCollectedCopies"])).firstMatch
+            format: "identifier IN %@", ["keyboardSpace", "autoSwitch"])).firstMatch
         for attempt in 0..<2 where !surface.exists && !entry.exists {
             if !globe.waitForExistence(timeout: 3), owner == fixture, !surface.exists {
                 fixture.textViews["input"].tap()
@@ -349,109 +349,5 @@ final class ClipboardUITests: XCTestCase {
             XCTAssertEqual(result.filter(\.isNewline).count, 1)
             XCTAssertEqual(result.filter { !$0.isNewline }, "sample")
         }
-    }
-
-    private func pictureFrame() -> CGRect? {
-        let frame = fixture.frame
-        if let picture = KeyboardScreen(XCUIScreen.main.screenshot(), screen: frame)?.pictureFrame() { return picture }
-        let candidates = springboard.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier CONTAINS[c] 'pictureinpicture' OR identifier CONTAINS[c] 'PIP' OR label CONTAINS[c] 'picture in picture'"))
-        return candidates.allElementsBoundByIndex.map(\.frame).first {
-            $0.width > 70 && $0.width < frame.width * 0.95 && $0.height > 25 && $0.height < frame.height * 0.45
-        }
-    }
-
-    private func stowPicture() throws {
-        let frame = try XCTUnwrap(pictureFrame(), "The system Picture in Picture window was not visible over the fixture.")
-        let screen = fixture.frame
-        let origin = fixture.coordinate(withNormalizedOffset: .zero)
-        let center = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY))
-        let edge = origin.withOffset(CGVector(dx: frame.midX < screen.midX ? 1 : screen.width - 1, dy: frame.midY))
-        center.press(forDuration: 0.15, thenDragTo: edge, withVelocity: .fast, thenHoldForDuration: 0.1)
-        let stowed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.pictureFrame() == nil }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [stowed], timeout: 6), .completed, "The full picture remained onscreen after dragging it to the edge.")
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = "CollectionAtScreenEdge"; attachment.lifetime = .keepAlways; add(attachment)
-    }
-
-    func testBatchReachesTheRealKeyboardWithSeparateContainers() {
-        enableKeyboard()
-        let prefix = String(UUID().uuidString.prefix(5)) + "-"
-        app.launchEnvironment["CLIPBOARD_TEST_BATCH"] = prefix
-        app.launch()
-        XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 10))
-        let deliver = app.buttons["deliverCopies"]
-        let privateContainers = deliver.waitForExistence(timeout: 3)
-        if privateContainers { deliver.tap(); finishDelivery() }
-        fixture.launch()
-        fixture.textViews["input"].tap()
-        selectClipboard(in: fixture, expecting: historyKey(prefix + "three", in: fixture))
-        for word in ["one", "two"] { XCTAssertTrue(historyKey(prefix + word, in: fixture).exists) }
-        if privateContainers {
-            let second = "next-" + prefix
-            app.launchEnvironment["CLIPBOARD_TEST_BATCH"] = second
-            app.launch()
-            XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 12))
-            fixture.activate()
-            if !fixture.buttons["keyboardSpace"].exists { fixture.textViews["input"].tap() }
-            let newest = historyKey(second + "three", in: fixture)
-            if waitFor(newest, seconds: 8) {
-                XCTContext.runActivity(named: "Subsequent local batch arrived automatically in the external keyboard") { _ in }
-            } else {
-                XCTContext.runActivity(named: "Complete the subsequent local batch via the trusted foreground receiver") { _ in }
-                app.activate()
-                XCTAssertTrue(deliver.waitForExistence(timeout: 8), app.debugDescription)
-                deliver.tap()
-                XCTAssertTrue(deliver.waitForNonExistence(timeout: 18))
-                XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 18), app.debugDescription)
-                fixture.activate()
-                if !fixture.buttons["keyboardSpace"].exists { fixture.textViews["input"].tap() }
-            }
-            for word in ["one", "two", "three"] { XCTAssertTrue(waitFor(historyKey(second + word, in: fixture), seconds: 6)) }
-        }
-    }
-
-    private func finishDelivery() {
-        let receive = app.buttons["receiveCollectedCopies"], sheet = app.navigationBars["存入键盘"]
-        if !receive.waitForExistence(timeout: 2), sheet.exists { selectClipboard(in: app, expecting: receive) }
-        if receive.exists {
-            let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false OR enabled == true"), object: receive)
-            _ = XCTWaiter.wait(for: [ready], timeout: 10)
-            if receive.exists, receive.isEnabled { receive.tap() }
-        }
-        let confirmation = app.buttons["approveLocalReceiver"]
-        if confirmation.waitForExistence(timeout: 3) { confirmation.tap() }
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 20), app.debugDescription)
-        XCTAssertTrue(app.buttons["deliverCopies"].waitForNonExistence(timeout: 10), app.debugDescription)
-    }
-
-    func testVisibleCollectionSavesThreeCopiesAcrossApps() throws {
-        enableKeyboard()
-        app.activate()
-        app.buttons["openCollection"].tap()
-        app.buttons["captureToggle"].tap()
-        let unsupported = label("这台设备当前不支持画中画。", in: app)
-        if unsupported.waitForExistence(timeout: 2) { throw XCTSkip("AVKit reports that Picture in Picture is unavailable on this simulator.") }
-        XCTAssertTrue(label("停止连拷", in: app).waitForExistence(timeout: 14), app.debugDescription)
-        fixture.launchArguments = ["-CollectionFixture"]
-        fixture.launch()
-        copyInFixture("alpha")
-        allowPasteIfRequested()
-        try stowPicture()
-        for word in ["bravo", "charlie"] {
-            copyInFixture(word)
-            allowPasteIfRequested()
-        }
-        app.activate()
-        XCTAssertTrue(label("3 条", in: app).waitForExistence(timeout: 8) ||
-                      app.descendants(matching: .any).matching(NSPredicate(format: "value == '3 条' OR label CONTAINS '3 条'")).firstMatch.exists,
-                      app.debugDescription)
-        app.buttons["captureToggle"].tap()
-        if app.navigationBars["存入键盘"].waitForExistence(timeout: 4) { finishDelivery() }
-        else if app.buttons["deliverCopies"].exists { app.buttons["deliverCopies"].tap(); finishDelivery() }
-        fixture.activate()
-        fixture.textViews["input"].tap()
-        selectClipboard(in: fixture, expecting: historyKey("charlie", in: fixture))
-        for word in ["alpha", "bravo"] { XCTAssertTrue(historyKey(word, in: fixture).exists, fixture.debugDescription) }
     }
 }

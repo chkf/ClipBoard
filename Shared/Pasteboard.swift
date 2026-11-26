@@ -52,7 +52,7 @@ enum SystemPasteboard {
         return nil
     }
 
-    static func representation(_ type: String, from provider: NSItemProvider) async throws -> Data {
+    private static func representation(_ type: String, from provider: NSItemProvider) async throws -> Data {
         let progress = Progress(totalUnitCount: 1)
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()

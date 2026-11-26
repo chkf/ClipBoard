@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import Network
 
 private final class HistoryInputView: UIInputView {
     var panelHeight: CGFloat = 243 {
@@ -20,7 +19,6 @@ final class KeyboardViewController: UIInputViewController {
     private var surfaceHeight: NSLayoutConstraint?
     private var visible = false
     private var layoutWidth: CGFloat = 0
-    private var delivery: CaptureLink?
 
     private var heightKey: String {
         traitCollection.verticalSizeClass == .compact ? "KeyboardHeight.landscape" : "KeyboardHeight.portrait"
@@ -62,7 +60,6 @@ final class KeyboardViewController: UIInputViewController {
             erase: { [weak self] in self?.textDocumentProxy.deleteBackward(); self?.updateTraits() },
             selectedText: { [weak self] in self?.textDocumentProxy.selectedText },
             adjustHeight: { [weak self] delta in self?.adjustHeight(delta) },
-            receive: { [weak self] in self?.receiveCollection() },
             globe: { [weak self] button in
                 if let self { button.addTarget(self, action: #selector(self.handleInputModeList(from:with:)), for: .allTouchEvents) }
             })
@@ -160,7 +157,6 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         if !visible {
-            delivery?.close(); delivery = nil
             session.stop(); presentation.page = .history
         }
     }
@@ -168,32 +164,11 @@ final class KeyboardViewController: UIInputViewController {
         guard visible else { return }
         let proxy = textDocumentProxy
         let type: UITextContentType? = proxy.textContentType ?? nil
-        let special = proxy.returnKeyType == .join && proxy.autocorrectionType == .no
-        let ticket = CaptureTicket(type?.rawValue) ?? (special ? CaptureTicket(proxy.selectedText) : nil)
-        if ticket != presentation.ticket {
-            delivery?.close(); delivery = nil
-            presentation.ticket = ticket
-            presentation.importMessage = nil
-            presentation.receiving = false
-        }
         let settings = type?.rawValue == ClipboardInputMode.settingsContext ||
             (proxy.returnKeyType == .join && proxy.autocorrectionType == .no && proxy.selectedText == ClipboardInputMode.settingsContext)
         if presentation.settings != settings { presentation.settings = settings }
         updateTraits()
-        session.start(fullAccess: hasFullAccess, captureEnabled: !settings && ticket == nil)
-    }
-    private func receiveCollection() {
-        guard delivery == nil, hasFullAccess, let store = session.store, let ticket = presentation.ticket,
-              let port = NWEndpoint.Port(rawValue: ticket.port) else { return }
-        let link = CaptureLink(NWConnection(host: "127.0.0.1", port: port, using: .tcp), ticket: ticket)
-        delivery = link
-        presentation.receiving = true
-        Task {
-            do { try await link.receiveItems(into: store, ticket: ticket) }
-            catch { if delivery === link { presentation.importMessage = "连拷记录仍保存在主 App，可重试。" } }
-            link.close()
-            if delivery === link { delivery = nil; presentation.receiving = false }
-        }
+        session.start(fullAccess: hasFullAccess, captureEnabled: !settings)
     }
     @objc private func hostInactive() { session.active = false }
     @objc private func hostBackground() { session.stop() }

@@ -16,7 +16,6 @@ for mode in local resign; do
   mkdir -p "$directory/Payload"
   app="$directory/Payload/Clipboard.app"
   keyboard="$app/PlugIns/ClipboardKeyboard.appex"
-  controls="$app/PlugIns/ClipboardControls.appex"
   entitlements="$directory/entitlements.plist"
   asset="Clipboard-$version-$mode.ipa"
   ditto "$work/Clipboard.xcarchive/Products/Applications/Clipboard.app" "$app"
@@ -33,7 +32,6 @@ for mode in local resign; do
   while IFS= read -r -d '' library; do
     codesign --force --sign - --timestamp=none "$library"
   done < <(find "$app" -depth \( -name '*.dylib' -o -name '*.framework' \) -print0)
-  codesign --force --sign - --timestamp=none "$controls"
   for bundle in "$keyboard" "$app"; do
     codesign --force --sign - --timestamp=none --generate-entitlement-der --entitlements "$entitlements" "$bundle"
   done

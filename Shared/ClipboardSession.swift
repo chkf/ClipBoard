@@ -27,9 +27,6 @@ final class ClipboardSession: ObservableObject {
     private var pageEnd = false
     private var paging = false
     private var lastPrune = Date.distantPast
-    private let mirror = CaptureMirror.Reader()
-    private var mirrorTask: Task<Void, Never>?
-    private var lastMirrorCheck = Date.distantPast
     private var captureEnabled = true
     var active = true
 
@@ -63,8 +60,6 @@ final class ClipboardSession: ObservableObject {
     func stop() {
         fullAccess = false
         monitor?.cancel()
-        mirrorTask?.cancel()
-        mirrorTask = nil
         capture?.cancel()
         if let notification { NotificationCenter.default.removeObserver(notification) }
         notification = nil
@@ -99,14 +94,6 @@ final class ClipboardSession: ObservableObject {
                 store = connection
             }
             guard let store else { return }
-            if fullAccess, captureEnabled, keyboardAccess != nil, mirrorTask == nil, Date().timeIntervalSince(lastMirrorCheck) >= 0.8 {
-                lastMirrorCheck = Date()
-                mirrorTask = Task { [weak self] in
-                    guard let self else { return }
-                    try? await mirror.receive(into: store)
-                    if generation == cycle { mirrorTask = nil }
-                }
-            }
             if fullAccess, Date().timeIntervalSince(lastPrune) >= 60 {
                 try await store.prune()
                 guard generation == cycle else { return }

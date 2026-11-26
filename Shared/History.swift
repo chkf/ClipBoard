@@ -12,7 +12,7 @@ struct ClipRow: Identifiable, Equatable {
     var isPinned: Bool { pinnedAt > 0 }
 }
 
-struct ClipBody: Codable {
+struct ClipBody {
     let type: String
     let data: Data
     var text: String? {
@@ -20,7 +20,7 @@ struct ClipBody: Codable {
     }
 }
 
-struct PreparedClip: Codable {
+struct PreparedClip {
     let key: String
     let preview: String
     let body: ClipBody
@@ -32,12 +32,6 @@ struct PreparedClip: Codable {
                     preview: String(text.prefix(240)), body: ClipBody(type: UTType.utf8PlainText.identifier, data: data),
                     thumbnail: nil)
     }
-}
-
-struct CapturedItem: Codable {
-    let id: UUID
-    let date: Date
-    let clip: PreparedClip
 }
 
 extension Digest {
@@ -119,7 +113,6 @@ actor HistoryStore {
                 """)
             try database.execute("CREATE INDEX IF NOT EXISTS recency ON clips(updated DESC, id DESC)")
             try database.execute("CREATE TABLE IF NOT EXISTS pins (id TEXT PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE, pinned REAL NOT NULL)")
-            try database.execute("CREATE TABLE IF NOT EXISTS capture_receipts (id TEXT PRIMARY KEY, received REAL NOT NULL)")
             try database.execute("""
                 CREATE TABLE IF NOT EXISTS bodies (
                     id TEXT PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE, uti TEXT NOT NULL,
@@ -177,16 +170,6 @@ actor HistoryStore {
 
     func thumbnail(_ id: String) throws -> Data? {
         try db.query("SELECT thumb FROM bodies WHERE id=? AND thumb IS NOT NULL", [.text(id)]) { $0.data(0) }.first
-    }
-
-    func importCapture(_ item: CapturedItem) throws {
-        try db.transaction {
-            let fresh = try db.execute("INSERT OR IGNORE INTO capture_receipts VALUES(?,?)",
-                [.text(item.id.uuidString), .real(Date().timeIntervalSince1970)])
-            guard fresh > 0 else { return }
-            try save(item.clip, timestamp: item.date.timeIntervalSince1970)
-            try bumpRevision()
-        }
     }
 
     private func save(_ clip: PreparedClip, timestamp: Double) throws {

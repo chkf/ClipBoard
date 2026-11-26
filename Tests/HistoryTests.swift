@@ -23,22 +23,6 @@ final class HistoryTests: XCTestCase {
                                 now: start.addingTimeInterval(Double(day) * 86_400))
     }
 
-    func testImportPreservesOrderPinsAndDeletionAcrossDeliveryRetries() async throws {
-        let records = ["first", "second", "third"].enumerated().map { index, value in
-            CapturedItem(id: UUID(), date: start.addingTimeInterval(Double(index)), clip: .text(value))
-        }
-        for item in records.reversed() { try await store.importCapture(item) }
-        let initial = try await store.page()
-        XCTAssertEqual(initial.map(\.preview), ["third", "second", "first"])
-        try await store.pin(initial[2].id, enabled: true)
-        try await store.delete(initial[0].id)
-        let reopened = try HistoryStore(directory: directory)
-        for item in records { try await reopened.importCapture(item) }
-        let replayed = try await reopened.page()
-        XCTAssertEqual(replayed.map(\.preview), ["first", "second"])
-        XCTAssertTrue(replayed[0].isPinned)
-    }
-
     func testPinSearchAndRetentionSurviveReopening() async throws {
         let long = String(repeating: "字", count: 260) + "NeEdLe"
         try await capture(.text("短句"), 1)

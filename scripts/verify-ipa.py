@@ -1,4 +1,3 @@
-import json
 import plistlib
 import subprocess
 import sys
@@ -14,24 +13,13 @@ version = sys.argv[2]
 mode = sys.argv[3]
 assert mode in ("local", "resign")
 plugins = list((app / "PlugIns").glob("*.appex"))
-assert {p.name for p in plugins} == {"ClipboardKeyboard.appex", "ClipboardControls.appex"}, plugins
-keyboard = app / "PlugIns/ClipboardKeyboard.appex"
-controls = app / "PlugIns/ClipboardControls.appex"
+assert [p.name for p in plugins] == ["ClipboardKeyboard.appex"], plugins
+keyboard = plugins[0]
 host = read_plist(app / "Info.plist")
 ext = read_plist(keyboard / "Info.plist")
-widget = read_plist(controls / "Info.plist")
-assert host["NSSupportsLiveActivities"] and "audio" in host["UIBackgroundModes"]
-assert widget["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.widgetkit-extension"
-assert widget["CFBundleIdentifier"] == host["CFBundleIdentifier"] + ".controls"
-assert any("clipboard-collect" in item["CFBundleURLSchemes"] for item in host["CFBundleURLTypes"])
-for bundle in (app, controls):
-    metadata = json.loads((bundle / "Metadata.appintents/extract.actionsdata").read_bytes())
-    intent = metadata["actions"]["ToggleCopyCollection"]
-    assert any(parameter.get("name") == "target" for parameter in intent["parameters"]), intent
-    assert "com.apple.link.systemProtocol.OpenEntity" in intent["systemProtocols"]
-    if bundle == app:
-        assert any(s["actionIdentifier"] == intent["identifier"] and s["systemImageName"] == "list.clipboard.fill"
-                   for s in metadata["autoShortcuts"]), "The system Shortcuts action was not registered"
+assert not host.get("UIBackgroundModes")
+assert not host.get("NSSupportsLiveActivities")
+assert all("clipboard-collect" not in item.get("CFBundleURLSchemes", []) for item in host.get("CFBundleURLTypes", []))
 assert ext["CFBundleIdentifier"] == host["CFBundleIdentifier"] + ".keyboard"
 assert ext["CFBundleVersion"] == host["CFBundleVersion"]
 assert ext["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.keyboard-service"
@@ -40,21 +28,19 @@ assert ext["NSExtension"]["NSExtensionAttributes"]["PrimaryLanguage"] == "zh-Han
 assert ext["NSExtension"]["NSExtensionPrincipalClass"].endswith(".KeyboardViewController")
 group = host["ClipboardAppGroup"]
 assert group.startswith("group.")
-for bundle, info in [(app, host), (keyboard, ext), (controls, widget)]:
+for bundle, info in [(app, host), (keyboard, ext)]:
     binary = bundle / info["CFBundleExecutable"]
     assert info["CFBundleSupportedPlatforms"] == ["iPhoneOS"]
     assert info["MinimumOSVersion"] == "26.0"
     assert info["CFBundleShortVersionString"] == version
-    assert info["CFBundleVersion"] == host["CFBundleVersion"]
-    if bundle != controls:
-        assert info["ClipboardAppGroup"] == group
-        assert info.get("ClipboardPrivateHistory", False) is (mode == "local")
+    assert info["ClipboardAppGroup"] == group
+    assert info.get("ClipboardPrivateHistory", False) is (mode == "local")
     assert "ALTAppGroups" not in info, "signer metadata belongs to the re-signed package"
     assert "arm64" in subprocess.check_output(["lipo", "-archs", binary], text=True).split()
     subprocess.run(["codesign", "--verify", "--strict", bundle], check=True)
     xml = subprocess.check_output(["codesign", "--display", "--entitlements", "-", "--xml", bundle])
     entitlements = plistlib.loads(xml) if xml.strip() else {}
-    if mode == "local" or bundle == controls:
+    if mode == "local":
         assert "com.apple.security.application-groups" not in entitlements
     else:
         assert entitlements["com.apple.security.application-groups"] == [group]

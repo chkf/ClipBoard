@@ -5,25 +5,15 @@ struct KeyboardSetupView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     private enum Panel: String, Identifiable {
-        case trial, settings, collection
+        case trial, settings
         var id: String { rawValue }
     }
     @State private var panel: Panel?
-    @ObservedObject private var collector = CopyCollector.shared
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Button { collector.showCollection = true } label: {
-                        HStack {
-                            Image(systemName: "rectangle.on.rectangle")
-                            Text("连续复制").font(.headline)
-                            Spacer()
-                            if collector.phase == .running { Text("\(collector.count) 条").monospacedDigit() }
-                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-                        }.padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
-                    }.buttonStyle(.plain).accessibilityIdentifier("openCollection")
                     VStack(alignment: .leading, spacing: 15) {
                         Label("启用键盘", systemImage: "keyboard").font(.title3.bold())
                         Text("在「设置」→「通用」→「键盘」→「键盘」中添加 Clipboard，再打开「允许完全访问」。")
@@ -61,21 +51,7 @@ struct KeyboardSetupView: View {
                 }
             }
         }
-        .onOpenURL { url in
-            guard url.scheme == "clipboard-collect" else { return }
-            switch url.host {
-            case "toggle": collector.requestToggle(external: true)
-            case "session": collector.showCollection = true
-            default: break
-            }
-        }
-        .sheet(item: Binding(get: { collector.showCollection ? .collection : panel }, set: { value in
-            collector.showCollection = value == .collection
-            panel = value == .collection ? nil : value
-        })) { (current: Panel) in
-            if current == .collection {
-                CopyCollectionView(collector: collector)
-            } else {
+        .sheet(item: $panel) { current in
             NavigationStack {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(current == .settings ? "下方选项直接保存到键盘。如果出现其他输入法，请用地球键选 Clipboard。" : "如果看到的是其他键盘，长按地球键选择 Clipboard。")
@@ -98,7 +74,6 @@ struct KeyboardSetupView: View {
                 }
             }
             .presentationDetents(current == .settings ? [.medium] : [.large])
-            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { panel = nil }
