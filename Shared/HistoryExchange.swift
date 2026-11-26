@@ -48,6 +48,16 @@ extension HistoryStore {
                 ON CONFLICT(content_key) DO UPDATE SET deleted=excluded.deleted WHERE excluded.deleted>removed.deleted
                 """)
             changed += try db.execute("""
+                INSERT INTO copy_events SELECT content_key,boot,counter,copied FROM incoming.copy_events WHERE true
+                ON CONFLICT(content_key) DO UPDATE SET boot=excluded.boot,counter=excluded.counter,copied=excluded.copied
+                WHERE CASE WHEN abs(copy_events.boot-excluded.boot)<=2 AND copy_events.counter=excluded.counter
+                           THEN excluded.copied<copy_events.copied ELSE excluded.copied>copy_events.copied END
+                """)
+            changed += try db.execute("""
+                UPDATE clips SET updated=e.copied FROM copy_events e
+                WHERE clips.content_key=e.content_key AND clips.updated<>e.copied
+                """)
+            changed += try db.execute("""
                 DELETE FROM clips WHERE updated<=(SELECT cleared FROM replica)
                 OR EXISTS(SELECT 1 FROM removed WHERE removed.content_key=clips.content_key AND removed.deleted>=clips.updated)
                 """)
@@ -63,9 +73,10 @@ extension HistoryStore {
             changed += try db.execute("DELETE FROM clips WHERE updated<=?", [.real(cutoff)])
             changed += try db.execute("""
                 INSERT INTO clips(id,content_key,preview,is_image,created,updated)
-                SELECT s.id,s.content_key,s.preview,s.is_image,s.created,s.updated FROM incoming.clips s
-                WHERE s.updated>max(?,(SELECT cleared FROM replica))
-                AND NOT EXISTS(SELECT 1 FROM removed WHERE content_key=s.content_key AND deleted>=s.updated)
+                SELECT s.id,s.content_key,s.preview,s.is_image,s.created,coalesce(e.copied,s.updated) FROM incoming.clips s
+                LEFT JOIN copy_events e ON e.content_key=s.content_key
+                WHERE coalesce(e.copied,s.updated)>max(?,(SELECT cleared FROM replica))
+                AND NOT EXISTS(SELECT 1 FROM removed WHERE content_key=s.content_key AND deleted>=coalesce(e.copied,s.updated))
                 ON CONFLICT(content_key) DO UPDATE SET updated=max(clips.updated,excluded.updated),
                     created=min(clips.created,excluded.created)
                 WHERE excluded.updated>clips.updated OR excluded.created<clips.created

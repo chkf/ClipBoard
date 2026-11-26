@@ -129,6 +129,10 @@ actor HistoryStore {
                 """)
                 try database.execute("INSERT OR IGNORE INTO replica(id,identity) VALUES(1,?)", [.text(UUID().uuidString)])
                 try database.execute("CREATE TABLE IF NOT EXISTS removed (content_key TEXT PRIMARY KEY, deleted REAL NOT NULL)")
+                try database.execute("""
+                    CREATE TABLE IF NOT EXISTS copy_events (content_key TEXT PRIMARY KEY, boot REAL NOT NULL,
+                      counter INTEGER NOT NULL, copied REAL NOT NULL)
+                    """)
             }
         }
     }
@@ -179,6 +183,14 @@ actor HistoryStore {
             let uncertain = previous.map { !stamp.sameBoot(as: $0.stamp) || stamp.count < $0.stamp.count } ?? false
             if let clip, !uncertain || previous?.key != clip.key {
                 let timestamp = now.timeIntervalSince1970
+                if privateDirectory != nil {
+                    // The other process can encounter the same system pasteboard event much later.
+                    let seen = try db.query("SELECT boot,counter FROM copy_events WHERE content_key=?", [.text(clip.key)]) {
+                        PasteStamp(boot: $0.real(0), count: $0.integer(1))
+                    }.first
+                    if seen == stamp { try remember(stamp, key: clip.key); return }
+                    try recordCopyEvent(stamp, key: clip.key, timestamp: timestamp)
+                }
                 let id = UUID().uuidString
                 if try db.execute("UPDATE clips SET updated=? WHERE content_key=?", [.real(timestamp), .text(clip.key)]) == 0 {
                     try db.execute("INSERT INTO clips VALUES(?,?,?,?,?,?)", [
@@ -203,6 +215,7 @@ actor HistoryStore {
             guard let key = try db.query("SELECT content_key FROM clips WHERE id=?", [.text(id)], map: { $0.text(0) }).first
             else { throw HistoryError.missing }
             let stamp = try write(body)
+            if privateDirectory != nil { try recordCopyEvent(stamp, key: key, timestamp: now.timeIntervalSince1970) }
             try db.execute("UPDATE clips SET updated=? WHERE id=?", [.real(now.timeIntervalSince1970), .text(id)])
             try remember(stamp, key: key)
             try bumpRevision()
@@ -212,6 +225,11 @@ actor HistoryStore {
     private func remember(_ stamp: PasteStamp, key: String?) throws {
         try db.execute("UPDATE state SET boot=?,counter=?,last_key=? WHERE id=1",
                        [.real(stamp.boot), .integer(stamp.count), key.map(SQLValue.text) ?? .null])
+    }
+
+    private func recordCopyEvent(_ stamp: PasteStamp, key: String, timestamp: Double) throws {
+        try db.execute("INSERT OR REPLACE INTO copy_events(content_key,boot,counter,copied) VALUES(?,?,?,?)",
+                       [.text(key), .real(stamp.boot), .integer(stamp.count), .real(timestamp)])
     }
 
     private func bumpRevision() throws {
@@ -242,11 +260,24 @@ actor HistoryStore {
 
     private func expire(days: Int, now: Date) throws {
         let cutoff = now.timeIntervalSince1970 - Double(days) * 86_400
+        if privateDirectory != nil {
+            try db.execute("""
+                INSERT INTO removed SELECT content_key,updated FROM clips WHERE updated<=?
+                ON CONFLICT(content_key) DO UPDATE SET deleted=max(removed.deleted,excluded.deleted)
+                """, [.real(cutoff)])
+        }
         if try db.execute("DELETE FROM clips WHERE updated<=?", [.real(cutoff)]) > 0 { try bumpRevision() }
     }
 
     func prune(now: Date = Date()) throws {
-        try db.transaction { try expire(days: state().settings.retention, now: now) }
+        try db.transaction {
+            try expire(days: state().settings.retention, now: now)
+            if privateDirectory != nil {
+                let cutoff = SQLValue.real(now.timeIntervalSince1970 - 90 * 86_400)
+                try db.execute("DELETE FROM copy_events WHERE copied<=?", [cutoff])
+                try db.execute("DELETE FROM removed WHERE deleted<=?", [cutoff])
+            }
+        }
     }
 
     func retention(_ days: Int, now: Date = Date()) throws {

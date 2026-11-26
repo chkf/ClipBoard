@@ -49,7 +49,7 @@
 ```sh
 xcodegen generate
 bash scripts/test-ios.sh
-bash scripts/package-ipa.sh 1.0.3
+bash scripts/package-ipa.sh 1.0.4
 ```
 
 真机 IPA 输出到 `build/release/`。在 GitHub Actions 的「iOS build and release」工作流选择 `main` 并勾选 `publish`，模拟器测试和真机包校验通过后，工作流会为本次提交创建版本标签并发布 IPA 和校验文件。也可以直接推送与 `MARKETING_VERSION` 对应的 `vX.Y.Z` 标签触发发布。测试用的宿主 App 只安装在模拟器中。

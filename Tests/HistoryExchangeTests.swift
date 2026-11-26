@@ -104,4 +104,24 @@ final class HistoryExchangeTests: XCTestCase {
         let after = try await app.receipt(), expected = try await keyboard.receipt().local
         XCTAssertEqual(after.received, expected)
     }
+
+    func testOpeningAnotherProcessDoesNotReviveTheDeletedCurrentClipboard() async throws {
+        let clip = PreparedClip.text("same system copy")
+        let stamp = PasteStamp(boot: 100, count: 5)
+        try await app.observe(clip, stamp: stamp, replacing: nil, now: start)
+        let rows = try await app.page()
+        try await app.delete(rows[0].id, now: start.addingTimeInterval(1))
+        // Its first read occurs after the deletion, but the actual copy happened before it.
+        try await keyboard.observe(clip, stamp: stamp, replacing: nil, now: start.addingTimeInterval(2))
+        try await capture(.text("another item"), in: keyboard, at: 6)
+        try await exchange(from: keyboard, to: app, fromMain: false)
+        try await exchange(from: app, to: keyboard, fromMain: true)
+        let a = try await app.page(), b = try await keyboard.page()
+        XCTAssertEqual(a.map(\.preview), ["another item"])
+        XCTAssertEqual(b.map(\.preview), ["another item"])
+        try await capture(clip, in: keyboard, at: 7)
+        try await exchange(from: keyboard, to: app, fromMain: false)
+        let recopied = try await app.page()
+        XCTAssertEqual(recopied.first?.preview, clip.preview)
+    }
 }
