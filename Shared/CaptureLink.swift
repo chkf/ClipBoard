@@ -5,18 +5,28 @@ import Network
 struct CaptureTicket: Equatable {
     let port: UInt16
     let secret: Data
-    var marker: String { "CBC2.\(port)." + secret.base64EncodedString() }
-    init(port: UInt16) {
+    let proof: Data
+    private var endpoint: String { "CBC2.\(port)." + secret.base64EncodedString() }
+    var marker: String { endpoint + "." + proof.base64EncodedString() }
+    init(port: UInt16, identity: Data) {
         self.port = port
-        secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        self.secret = secret
+        let endpoint = "CBC2.\(port)." + secret.base64EncodedString()
+        proof = Data(HMAC<SHA256>.authenticationCode(for: Data(endpoint.utf8), using: SymmetricKey(data: identity)))
     }
     init?(_ marker: String?) {
-        guard let marker, marker.count < 70 else { return nil }
+        guard let marker, marker.count < 120 else { return nil }
         let parts = marker.split(separator: ".")
-        guard parts.count == 3, parts[0] == "CBC2", let port = UInt16(parts[1]), port > 1023,
-              let key = Data(base64Encoded: String(parts[2])), key.count == 32 else { return nil }
+        guard parts.count == 4, parts[0] == "CBC2", let port = UInt16(parts[1]), port > 1023,
+              let key = Data(base64Encoded: String(parts[2])), key.count == 32,
+              let proof = Data(base64Encoded: String(parts[3])), proof.count == 32 else { return nil }
         self.port = port
         secret = key
+        self.proof = proof
+    }
+    func authenticates(_ identity: Data) -> Bool {
+        HMAC<SHA256>.isValidAuthenticationCode(proof, authenticating: Data(endpoint.utf8), using: SymmetricKey(data: identity))
     }
 }
 
@@ -77,8 +87,11 @@ final class CaptureLink: @unchecked Sendable {
         while let chunk = try input.read(upToCount: Self.chunk), !chunk.isEmpty { try await send(chunk) }
         try await send(Data())
     }
-    func receiveItems(into store: HistoryStore) async throws {
+    func receiveItems(into store: HistoryStore, ticket: CaptureTicket) async throws {
         try await send(Data("receive".utf8))
+        let identity = try await read()
+        guard identity.count == 32, ticket.authenticates(identity) else { throw HistoryError.unreadable }
+        try await CaptureMirror.remember(identity)
         while true {
             let header = try await read()
             if header == Data("done".utf8) { try await send(Data("done".utf8)); return }

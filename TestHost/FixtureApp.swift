@@ -88,6 +88,17 @@ private struct KeyboardField: UIViewRepresentable {
         let view = FixtureTextView()
         view.accessibilityIdentifier = "input"
         view.delegate = context.coordinator
+        let arguments = ProcessInfo.processInfo.arguments
+        if let flag = arguments.firstIndex(of: "-ReturnKey"), arguments.indices.contains(flag + 1) {
+            switch arguments[flag + 1] {
+            case "Search": view.returnKeyType = .search
+            case "Send": view.returnKeyType = .send
+            case "Done": view.returnKeyType = .done
+            default: view.returnKeyType = .default
+            }
+            view.enablesReturnKeyAutomatically = true
+            view.text = "sample"
+        }
         return view
     }
     func updateUIView(_ view: UITextView, context: Context) {}
@@ -101,7 +112,8 @@ private struct KeyboardField: UIViewRepresentable {
 
 private final class FixtureTextView: UITextView {
     override var textInputMode: UITextInputMode? {
-        if ProcessInfo.processInfo.arguments.contains("-MeasureKeyboardSwitch"),
+        let arguments = ProcessInfo.processInfo.arguments
+        if (arguments.contains("-MeasureKeyboardSwitch") || arguments.contains("-ReturnKey")),
            let english = UITextInputMode.activeInputModes.first(where: { $0.primaryLanguage?.hasPrefix("en") == true }) {
             return english
         }

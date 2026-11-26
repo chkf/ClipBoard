@@ -183,7 +183,7 @@ final class KeyboardViewController: UIInputViewController {
         delivery = link
         presentation.receiving = true
         Task {
-            do { try await link.receiveItems(into: store) }
+            do { try await link.receiveItems(into: store, ticket: ticket) }
             catch { if delivery === link { presentation.importMessage = "连拷记录仍保存在主 App，可重试。" } }
             link.close()
             if delivery === link { delivery = nil; presentation.receiving = false }

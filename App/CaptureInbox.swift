@@ -21,6 +21,29 @@ actor CaptureInbox {
     }
     func acknowledge(_ item: URL) throws { try FileManager.default.removeItem(at: item) }
 
+    // Large items and older batches stay in the outbox for the streaming transfer.
+    func updateMirror() async {
+        guard let files = try? entries(), !files.isEmpty || hadMirror else { return }
+        do {
+            guard let key = try await CaptureMirror.secret(create: true) else { return }
+            let received = Set(try await CaptureMirror.acknowledgements(key: key))
+            var data: [Data] = [], remaining = CaptureMirror.limit
+            for file in files.reversed() {
+                let name = file.deletingPathExtension().lastPathComponent
+                if let dash = name.firstIndex(of: "-"), let id = UUID(uuidString: String(name[name.index(after: dash)...])), received.contains(id) {
+                    try acknowledge(file)
+                } else if data.count < CaptureMirror.maximumItems,
+                          let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= remaining {
+                    data.append(try Data(contentsOf: file))
+                    remaining -= size
+                }
+            }
+            try await CaptureMirror.publish(Array(data.reversed()), key: key)
+            hadMirror = !data.isEmpty
+        } catch { /* The protected outbox remains available for a foreground transfer. */ }
+    }
+    private var hadMirror = false
+
     func save(_ item: CapturedItem) async throws {
         if let container = try? HistoryContainer.url() {
             if history == nil { history = try HistoryStore(directory: container.appendingPathComponent("History")) }

@@ -5,7 +5,7 @@ struct KeyboardSetupView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     private enum Panel: String, Identifiable {
-        case trial, settings
+        case trial, settings, collection
         var id: String { rawValue }
     }
     @State private var panel: Panel?
@@ -61,11 +61,16 @@ struct KeyboardSetupView: View {
                 }
             }
         }
-        .sheet(isPresented: $collector.showCollection) { CopyCollectionView(collector: collector) }
         .onOpenURL { url in
             if url.scheme == "clipboard-collect", url.host == "session" { collector.showCollection = true }
         }
-        .sheet(item: $panel) { current in
+        .sheet(item: Binding(get: { collector.showCollection ? .collection : panel }, set: { value in
+            collector.showCollection = value == .collection
+            panel = value == .collection ? nil : value
+        })) { (current: Panel) in
+            if current == .collection {
+                CopyCollectionView(collector: collector)
+            } else {
             NavigationStack {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(current == .settings ? "下方选项直接保存到键盘。如果出现其他输入法，请用地球键选 Clipboard。" : "如果看到的是其他键盘，长按地球键选择 Clipboard。")
@@ -88,6 +93,7 @@ struct KeyboardSetupView: View {
                 }
             }
             .presentationDetents(current == .settings ? [.medium] : [.large])
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { panel = nil }

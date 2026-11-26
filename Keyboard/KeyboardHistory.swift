@@ -33,6 +33,10 @@ struct KeyboardHistory: View {
                         Button(presentation.receiving ? "正在存入…" : "存入键盘", action: receive)
                             .buttonStyle(.borderedProminent).accessibilityIdentifier("receiveCollectedCopies")
                             .disabled(presentation.receiving || !session.loaded || !session.fullAccess)
+                            .task(id: session.loaded ? presentation.ticket?.marker : nil) {
+                                if session.loaded, session.fullAccess, let ticket = presentation.ticket,
+                                   let key = try? CaptureMirror.secret(), ticket.authenticates(key) { receive() }
+                            }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                     if presentation.needsGlobe { SystemGlobe(install: globe).frame(width: rail, height: bottom) }
                 } else if presentation.settings {

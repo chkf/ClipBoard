@@ -23,7 +23,7 @@ struct CopyCollectionView: View {
                     Section {
                         Button("存入键盘（\(collector.pending) 条）") { collector.showImport = true }
                             .accessibilityIdentifier("deliverCopies")
-                    } footer: { Text("这些记录已保存在本机。点一次即可把整批记录送入独立签名的键盘。") }
+                    } footer: { Text("记录已保存在本机。首次接收后，切到键盘可自动取回近期记录。较大的图片和剩余记录可在这里整批存入。") }
                 }
                 if let message = collector.message {
                     Section { Text(message).font(.footnote).accessibilityIdentifier("captureStatus") }
@@ -50,6 +50,10 @@ private struct PictureSource: UIViewRepresentable {
         init(collector: CopyCollector) { self.collector = collector; super.init(frame: .zero); clipsToBounds = true; layer.cornerRadius = 12 }
         required init?(coder: NSCoder) { nil }
         override func layoutSubviews() { super.layoutSubviews(); if window != nil { collector.mountPicture(self) } }
-        override func didMoveToWindow() { super.didMoveToWindow(); if window != nil { collector.mountPicture(self); collector.picture.render(count: collector.count) } }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { collector.mountPicture(self); collector.picture.render(count: collector.count) }
+            else { collector.unmountPicture(self) }
+        }
     }
 }

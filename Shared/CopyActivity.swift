@@ -1,5 +1,6 @@
 import ActivityKit
 import AppIntents
+import Foundation
 
 struct CopyActivity: ActivityAttributes {
     struct ContentState: Codable, Hashable { var count: Int }

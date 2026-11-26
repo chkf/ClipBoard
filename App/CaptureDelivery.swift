@@ -18,6 +18,7 @@ import UIKit
         error = nil
         let generation = cycle
         do {
+            guard let identity = try CaptureMirror.secret(create: true) else { throw HistoryError.unreadable }
             let parameters = NWParameters.tcp
             parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
             let listener = try NWListener(using: parameters)
@@ -27,7 +28,7 @@ import UIKit
                     guard let self, self.cycle == generation else { return }
                     switch state {
                     case .ready:
-                        if let port = listener?.port { self.ticket = CaptureTicket(port: port.rawValue) }
+                        if let port = listener?.port { self.ticket = CaptureTicket(port: port.rawValue, identity: identity) }
                     case .failed: self.error = "未能打开本机连接，请重试。"
                     default: break
                     }
@@ -42,6 +43,7 @@ import UIKit
                         defer { link.close(); if self.cycle == generation { self.link = nil } }
                         do {
                             guard try await link.read() == Data("receive".utf8) else { return }
+                            try await link.send(identity)
                             for file in try await CaptureInbox.shared.entries() {
                                 let filename = file.deletingPathExtension().lastPathComponent
                                 guard let dash = filename.firstIndex(of: "-") else { throw HistoryError.unreadable }
@@ -78,7 +80,7 @@ struct CaptureDeliveryView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let error = delivery.error { Text(error); Button("重试") { delivery.start() } }
                 else if let ticket = delivery.ticket {
-                    Text("在下方点「存入键盘」。如果出现其他输入法，请用地球键选择 Clipboard。")
+                    Text("首次使用时，在下方点「存入键盘」。之后会自动接收。如果出现其他输入法，请用地球键选择 Clipboard。")
                     CaptureTicketField(marker: ticket.marker).frame(height: 2).accessibilityHidden(true)
                 } else { ProgressView() }
                 Spacer()

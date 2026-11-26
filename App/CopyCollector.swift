@@ -17,6 +17,7 @@ import UIKit
     private var attached = false
     private var clock: Task<Void, Never>?
     private var writes: Task<Void, Never>?
+    private var publishCopies: Task<Void, Never>?
     private var activity: Activity<CopyActivity>?
     private var observed: PasteStamp?
     private var sessionID = UUID()
@@ -52,7 +53,13 @@ import UIKit
         attached = view.window != nil
         if attached { startIfReady() }
     }
-    func refreshPending() async { pending = (try? await CaptureInbox.shared.entries().count) ?? pending }
+    func unmountPicture(_ view: UIView) {
+        if picture.layer.superlayer === view.layer { attached = false }
+    }
+    func refreshPending() async {
+        await CaptureInbox.shared.updateMirror()
+        pending = (try? await CaptureInbox.shared.entries().count) ?? pending
+    }
     private func startIfReady() {
         guard wantsStart, attached, phase == .idle, UIApplication.shared.applicationState == .active,
               UIApplication.shared.isProtectedDataAvailable else { return }
@@ -147,6 +154,11 @@ import UIKit
                 self.count += 1
                 self.message = nil
                 if self.phase == .running {
+                    self.publishCopies?.cancel()
+                    self.publishCopies = Task {
+                        try? await Task.sleep(for: .milliseconds(240))
+                        if !Task.isCancelled { await CaptureInbox.shared.updateMirror() }
+                    }
                     self.picture.render(count: self.count)
                     if let activity = self.activity {
                         await activity.update(ActivityContent(state: .init(count: self.count), staleDate: nil))

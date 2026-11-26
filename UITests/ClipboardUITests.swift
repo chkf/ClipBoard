@@ -291,6 +291,77 @@ final class ClipboardUITests: XCTestCase {
         app.buttons["finishTrial"].tap()
     }
 
+    func testReturnKeysMatchTheActiveSystemField() throws {
+        enableKeyboard()
+        for (name, translated) in [("Return", "换行"), ("Search", "搜索"), ("Send", "发送"), ("Done", "完成")] {
+            fixture.launchArguments = ["-ReturnKey", name]
+            fixture.launch()
+            fixture.textViews["input"].tap()
+            let keyboard = fixture.keyboards.firstMatch
+            XCTAssertTrue(keyboard.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch.waitForExistence(timeout: 8))
+            let native = keyboard.descendants(matching: .any).matching(NSPredicate(
+                format: "label IN[c] %@ OR identifier IN[c] %@", [name, translated], [name, translated])).firstMatch
+            let nativeKey = try XCTUnwrap(native.exists ? native : keyboard.keys.allElementsBoundByIndex.filter {
+                $0.frame.midX > fixture.frame.width * 0.80 && $0.frame.width > 55
+            }.max(by: { $0.frame.midY < $1.frame.midY }))
+            screenshot("NativeReturn" + name, in: fixture)
+            let nativeScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+            let nativeBlue = nativeScreen.blueFraction(in: nativeKey.frame.insetBy(dx: 3, dy: 3))
+            let custom = fixture.buttons["keyboardReturn"]
+            selectClipboard(in: fixture, expecting: custom)
+            XCTAssertEqual(custom.label, translated)
+            screenshot("ClipboardReturn" + name, in: fixture)
+            let customScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+            let customBlue = customScreen.blueFraction(in: custom.frame.insetBy(dx: 3, dy: 3))
+            XCTAssertEqual(nativeBlue > 0.40, customBlue > 0.40, "\(name): system blue \(nativeBlue), Clipboard blue \(customBlue), \(nativeKey)")
+            custom.tap()
+            XCTAssertEqual(fixture.textViews["input"].value as? String, "sample\n")
+        }
+    }
+
+    private func pictureFrame() -> CGRect? {
+        let frame = fixture.frame
+        if let picture = KeyboardScreen(XCUIScreen.main.screenshot(), screen: frame)?.pictureFrame() { return picture }
+        let candidates = springboard.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier CONTAINS[c] 'pictureinpicture' OR identifier CONTAINS[c] 'PIP' OR label CONTAINS[c] 'picture in picture'"))
+        return candidates.allElementsBoundByIndex.map(\.frame).first {
+            $0.width > 70 && $0.width < frame.width * 0.95 && $0.height > 25 && $0.height < frame.height * 0.45
+        }
+    }
+
+    private func stowPicture() throws {
+        let frame = try XCTUnwrap(pictureFrame(), "The system Picture in Picture window was not visible over the fixture.")
+        let screen = fixture.frame
+        let origin = fixture.coordinate(withNormalizedOffset: .zero)
+        let center = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+        let edge = origin.withOffset(CGVector(dx: frame.midX < screen.midX ? 1 : screen.width - 1, dy: frame.midY))
+        center.press(forDuration: 0.15, thenDragTo: edge, withVelocity: .fast, thenHoldForDuration: 0.1)
+        let stowed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.pictureFrame() == nil }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [stowed], timeout: 6), .completed, "The full picture remained onscreen after dragging it to the edge.")
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "CollectionAtScreenEdge"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    func testBatchReachesTheRealKeyboardWithSeparateContainers() {
+        enableKeyboard()
+        let prefix = String(UUID().uuidString.prefix(5)) + "-"
+        app.launchEnvironment["CLIPBOARD_TEST_BATCH"] = prefix
+        app.launch()
+        XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 10))
+        let deliver = app.buttons["deliverCopies"]
+        if deliver.waitForExistence(timeout: 3) {
+            deliver.tap()
+            let receive = app.buttons["receiveCollectedCopies"]
+            if receive.waitForExistence(timeout: 5), receive.isEnabled { receive.tap() }
+            XCTAssertTrue(app.buttons["captureToggle"].waitForExistence(timeout: 15), app.debugDescription)
+            XCTAssertTrue(deliver.waitForNonExistence(timeout: 15))
+        }
+        fixture.launch()
+        fixture.textViews["input"].tap()
+        selectClipboard(in: fixture, expecting: historyKey(prefix + "three", in: fixture))
+        for word in ["one", "two"] { XCTAssertTrue(historyKey(prefix + word, in: fixture).exists) }
+    }
+
     func testVisibleCollectionSavesThreeCopiesAcrossApps() throws {
         enableKeyboard()
         app.activate()
@@ -301,7 +372,10 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(label("停止连拷", in: app).waitForExistence(timeout: 14), app.debugDescription)
         fixture.launchArguments = ["-CollectionFixture"]
         fixture.launch()
-        for word in ["alpha", "bravo", "charlie"] {
+        copyInFixture("alpha")
+        allowPasteIfRequested()
+        try stowPicture()
+        for word in ["bravo", "charlie"] {
             copyInFixture(word)
             allowPasteIfRequested()
         }

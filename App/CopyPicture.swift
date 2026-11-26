@@ -11,6 +11,7 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
     var stopped: (() -> Void)?
     var failed: ((String) -> Void)?
     private var waiting = false
+    private var paused = false
     private var timeout: Task<Void, Never>?
     var supported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
 
@@ -25,6 +26,7 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
         pip.requiresLinearPlayback = true
         controller = pip
         waiting = true
+        paused = false
         render(count: 0)
         readiness = pip.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] _, _ in
             Task { @MainActor in self?.startIfReady() }
@@ -63,15 +65,17 @@ final class CopyPicture: NSObject, AVPictureInPictureControllerDelegate, AVPictu
     func pictureInPictureControllerTimeRangeForPlayback(_ controller: AVPictureInPictureController) -> CMTimeRange {
         CMTimeRange(start: .zero, duration: .positiveInfinity)
     }
-    func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool { false }
+    func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool { paused }
     func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
-        if !playing && controller.isPictureInPictureActive { stopped?() }
+        paused = !playing
+        controller.invalidatePlaybackState()
     }
     func pictureInPictureController(_ controller: AVPictureInPictureController, didTransitionToRenderSize newRenderSize: CMVideoDimensions) {}
     func pictureInPictureController(_ controller: AVPictureInPictureController, skipByInterval skipInterval: CMTime, completion completionHandler: @escaping () -> Void) { completionHandler() }
     func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(_ controller: AVPictureInPictureController) -> Bool { true }
 
     func render(count: Int) {
+        guard !paused else { return }
         let size = CGSize(width: 320, height: 112)
         var buffer: CVPixelBuffer?
         let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
