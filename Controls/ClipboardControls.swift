@@ -15,7 +15,7 @@ struct CopyControl: ControlWidget {
             ControlWidgetButton(action: ToggleCopyCollection()) {
                 Label("连续复制", systemImage: CollectionControl.symbol)
             }.tint(.mint)
-        }.displayName("连续复制").description("开启或结束跨 App 连拷。")
+        }.displayName("Clipboard 连续复制").description("开启或结束跨 App 连拷。")
     }
 }
 

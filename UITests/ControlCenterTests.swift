@@ -70,6 +70,7 @@ final class ControlCenterTests: XCTestCase {
             if let field = visible(fields) { field.typeText("Clipboard") }
         }
         if visible(tile, timeout: 3) == nil, let group = visible(labels(["Clipboard", "Clipboard 连拷"])) { group.tap() }
+        snapshot("ClipboardControlSearchResults")
         let entry = try XCTUnwrap(visible(tile, timeout: 8), hierarchy)
         snapshot("ClipboardControlInGallery")
         entry.tap()
@@ -114,5 +115,31 @@ final class ControlCenterTests: XCTestCase {
             if open.waitForExistence(timeout: 1) { open.tap(); break }
         }
         assertStarted()
+    }
+
+    func testSystemOpenAppStartsOnlyAfterOptIn() {
+        app.launch()
+        app.buttons["openCollection"].tap()
+        let setting = app.switches["collectWhenOpened"]
+        XCTAssertTrue(setting.waitForExistence(timeout: 8))
+        if setting.value as? String == "0" {
+            setting.coordinate(withNormalizedOffset: .init(dx: 0.94, dy: 0.5)).tap()
+        }
+        XCTAssertEqual(setting.value as? String, "1")
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["openCollection"].waitForExistence(timeout: 6))
+        fixture.launch()
+        app.activate()
+        assertStarted()
+        snapshot("ClipboardStartedByOpeningApp")
+        app.terminate()
+        app.launch()
+        assertStarted()
+        setting.coordinate(withNormalizedOffset: .init(dx: 0.94, dy: 0.5)).tap()
+        XCTAssertEqual(setting.value as? String, "0")
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.buttons["openCollection"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["captureToggle"].exists)
     }
 }

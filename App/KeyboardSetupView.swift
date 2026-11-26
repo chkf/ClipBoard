@@ -64,7 +64,7 @@ struct KeyboardSetupView: View {
         .onOpenURL { url in
             guard url.scheme == "clipboard-collect" else { return }
             switch url.host {
-            case "toggle": collector.requestToggle()
+            case "toggle": collector.requestToggle(external: true)
             case "session": collector.showCollection = true
             default: break
             }

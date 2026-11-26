@@ -2,6 +2,7 @@ import XCTest
 
 @MainActor
 final class ClipboardUITests: XCTestCase {
+    private static var configuredKeyboard = false
     private let app = XCUIApplication()
     private let fixture = XCUIApplication(bundleIdentifier: "net.chkf.ClipboardTestHost")
     private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -68,6 +69,7 @@ final class ClipboardUITests: XCTestCase {
 
     private func enableKeyboard() {
         app.launch()
+        if Self.configuredKeyboard { return }
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
         settings.launch()
         for _ in 0..<5 where !settings.navigationBars["Settings"].exists {
@@ -106,6 +108,7 @@ final class ClipboardUITests: XCTestCase {
         }
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: fullAccess)
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, settings.debugDescription)
+        Self.configuredKeyboard = true
     }
 
     @discardableResult
@@ -116,10 +119,15 @@ final class ClipboardUITests: XCTestCase {
             globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
         let surface = owner.descendants(matching: .any).matching(NSPredicate(
             format: "identifier IN %@", ["keyboardSpace", "autoSwitch", "receiveCollectedCopies"])).firstMatch
-        if !surface.exists && !entry.exists {
-            XCTAssertTrue(globe.waitForExistence(timeout: 5), owner.debugDescription)
-            globe.tap()
-            if !waitFor(surface, seconds: 10), !entry.exists, globe.exists {
+        for attempt in 0..<2 where !surface.exists && !entry.exists {
+            if !globe.waitForExistence(timeout: 3), owner == fixture, !surface.exists {
+                fixture.textViews["input"].tap()
+            }
+            if surface.exists || entry.exists { break }
+            XCTAssertTrue(globe.waitForExistence(timeout: 8), owner.debugDescription)
+            if attempt == 0 {
+                globe.tap()
+            } else {
                 globe.press(forDuration: 1.1)
                 let option = NSPredicate(format: "label CONTAINS[c] 'Clipboard' AND NOT (identifier IN %@)",
                                          ["NextKeyboard", "InputModeSwitchKey"])
@@ -131,6 +139,7 @@ final class ClipboardUITests: XCTestCase {
                     }
                 }
             }
+            if waitFor(surface, seconds: 10) || entry.exists { break }
         }
         let found = waitFor(entry)
         XCTAssertTrue(found, owner.debugDescription)
@@ -324,14 +333,17 @@ final class ClipboardUITests: XCTestCase {
             }.max(by: { $0.frame.midY < $1.frame.midY }))
             screenshot("NativeReturn" + name, in: fixture)
             let nativeScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
-            let nativeBlue = nativeScreen.blueFraction(in: nativeKey.frame.insetBy(dx: 3, dy: 3))
+            let nativeColor = nativeScreen.keycapColor(in: nativeKey.frame.insetBy(dx: 3, dy: 3))
             let custom = fixture.buttons["keyboardReturn"]
             selectClipboard(in: fixture, expecting: custom)
             XCTAssertEqual(custom.label, translated)
             screenshot("ClipboardReturn" + name, in: fixture)
             let customScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
-            let customBlue = customScreen.blueFraction(in: custom.frame.insetBy(dx: 3, dy: 3))
-            XCTAssertEqual(nativeBlue > 0.40, customBlue > 0.40, "\(name): system blue \(nativeBlue), Clipboard blue \(customBlue), \(nativeKey)")
+            let customColor = customScreen.keycapColor(in: custom.frame.insetBy(dx: 3, dy: 3))
+            XCTAssertEqual(nativeColor.count, 3)
+            XCTAssertEqual(customColor.count, 3)
+            XCTAssertTrue(zip(nativeColor, customColor).allSatisfy { abs($0.0 - $0.1) <= 5 },
+                          "\(name): system RGB \(nativeColor), Clipboard RGB \(customColor)")
             custom.tap()
             let result = try XCTUnwrap(fixture.textViews["input"].value as? String)
             XCTAssertEqual(result.filter(\.isNewline).count, 1)

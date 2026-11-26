@@ -4,12 +4,14 @@ import WidgetKit
 
 @main
 struct ClipboardApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
             KeyboardSetupView()
                 .onAppIntentExecution(ToggleCopyCollection.self) { _ in
-                    CopyCollector.shared.requestToggle()
+                    CopyCollector.shared.requestToggle(external: true)
                 }
+                .onChange(of: scenePhase, initial: true) { _, phase in CopyCollector.shared.sceneChanged(phase) }
                 .task {
                     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
                     if UserDefaults.standard.string(forKey: "IndexedControlsBuild") != version {

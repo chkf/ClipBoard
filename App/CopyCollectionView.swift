@@ -4,6 +4,7 @@ import UIKit
 struct CopyCollectionView: View {
     @ObservedObject var collector: CopyCollector
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(CopyCollector.startWhenOpenedKey) private var startWhenOpened = false
     var body: some View {
         NavigationStack {
             List {
@@ -29,9 +30,11 @@ struct CopyCollectionView: View {
                     Section { Text(message).font(.footnote).accessibilityIdentifier("captureStatus") }
                 }
                 Section {
-                    Text("长按控制中心空白处，点「添加控制」，搜索「连续复制」。也可以在系统「快捷指令」里运行 Clipboard 的「切换连续复制」。系统询问粘贴权限时选「允许粘贴」。")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                } header: { Text("控制中心") }
+                    Toggle("打开 Clipboard 时开始连拷", isOn: $startWhenOpened)
+                        .accessibilityIdentifier("collectWhenOpened")
+                } header: { Text("控制中心") } footer: {
+                    Text("如果「连续复制」控件是空白的，打开这个选项，在控制中心添加苹果的「打开 App」，选 Clipboard。以后点它或桌面图标都会启动连拷。收集中打开 App 可查看计数或点停止。")
+                }
             }
             .navigationTitle("连续复制")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }

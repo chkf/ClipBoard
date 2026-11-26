@@ -5,6 +5,7 @@ import UIKit
 
 @MainActor final class CopyCollector: NSObject, ObservableObject {
     static let shared = CopyCollector()
+    static let startWhenOpenedKey = "StartCollectionWhenOpened"
     enum Phase { case idle, starting, running }
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var count = 0
@@ -23,6 +24,9 @@ import UIKit
     private var sessionID = UUID()
     private var locking = false
     private var failedAt: Date?
+    private var startOnEntry: Task<Void, Never>?
+    private var eligibleEntry = true
+    private var automaticStartDate: Date?
     override init() {
         super.init()
         picture.started = { [weak self] in self?.didStart() }
@@ -38,11 +42,41 @@ import UIKit
         for stale in Activity<CopyActivity>.activities { Task { await stale.end(nil, dismissalPolicy: .immediate) } }
     }
 
-    func requestToggle() {
+    func requestToggle(external: Bool = false) {
+        startOnEntry?.cancel()
+        eligibleEntry = false
+        let alreadyStarted = automaticStartDate.map { Date().timeIntervalSince($0) < 2 } ?? false
+        automaticStartDate = nil
+        if external && alreadyStarted { return }
         if phase != .idle || wantsStart { showCollection = true; stop(); return }
+        requestStart()
+    }
+    private func requestStart() {
         showCollection = true
         wantsStart = true
         startIfReady()
+    }
+    func sceneChanged(_ state: ScenePhase) {
+        switch state {
+        case .background:
+            startOnEntry?.cancel()
+            automaticStartDate = nil
+            eligibleEntry = !locking
+        case .active:
+            guard eligibleEntry else { return }
+            eligibleEntry = false
+            guard UserDefaults.standard.bool(forKey: Self.startWhenOpenedKey) else { return }
+            if phase != .idle || wantsStart { showCollection = true; return }
+            // An explicit control or URL may arrive as the same scene activates.
+            startOnEntry = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled, let self, phase == .idle, !wantsStart, !locking,
+                      UIApplication.shared.applicationState == .active, UIApplication.shared.isProtectedDataAvailable else { return }
+                automaticStartDate = Date()
+                requestStart()
+            }
+        default: break
+        }
     }
     func mountPicture(_ view: UIView) {
         if picture.layer.superlayer !== view.layer {
@@ -110,7 +144,12 @@ import UIKit
                UIApplication.shared.applicationState == .active { showImport = true }
         }
     }
-    @objc private func willLock() { locking = true; stop() }
+    @objc private func willLock() {
+        locking = true
+        eligibleEntry = false
+        startOnEntry?.cancel()
+        stop()
+    }
     @objc private func didUnlock() { locking = false }
     @objc private func becameActive() {
         picture.startIfReady()

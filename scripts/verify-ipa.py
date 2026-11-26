@@ -28,9 +28,10 @@ for bundle in (app, controls):
     metadata = json.loads((bundle / "Metadata.appintents/extract.actionsdata").read_bytes())
     intent = metadata["actions"]["ToggleCopyCollection"]
     assert any(parameter.get("name") == "target" for parameter in intent["parameters"]), intent
-    assert "com.apple.link.systemProtocol.SessionStarting" not in intent["systemProtocols"]
+    assert "com.apple.link.systemProtocol.OpenEntity" in intent["systemProtocols"]
     if bundle == app:
-        assert metadata["autoShortcuts"], "The system Shortcuts action was not registered"
+        assert any(s["actionIdentifier"] == intent["identifier"] and s["systemImageName"] == "list.clipboard.fill"
+                   for s in metadata["autoShortcuts"]), "The system Shortcuts action was not registered"
 assert ext["CFBundleIdentifier"] == host["CFBundleIdentifier"] + ".keyboard"
 assert ext["CFBundleVersion"] == host["CFBundleVersion"]
 assert ext["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.keyboard-service"

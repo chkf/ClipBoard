@@ -24,16 +24,18 @@ struct KeyboardScreen {
         guard rendered else { return nil }
         pixels = bitmap
     }
-    func blueFraction(in rect: CGRect) -> Double {
-        var blue = 0, total = 0
+    func keycapColor(in rect: CGRect) -> [Int] {
+        var red = [Int](), green = [Int](), blue = [Int]()
         for y in max(0, Int(rect.minY * scale))..<min(height, Int(rect.maxY * scale)) {
             for x in max(0, Int(rect.minX * scale))..<min(width, Int(rect.maxX * scale)) {
                 let p = (y * width + x) * 4
-                if Int(pixels[p + 2]) > Int(pixels[p]) + 60 && pixels[p + 2] > 145 { blue += 1 }
-                total += 1
+                red.append(Int(pixels[p]))
+                green.append(Int(pixels[p + 1]))
+                blue.append(Int(pixels[p + 2]))
             }
         }
-        return Double(blue) / Double(max(1, total))
+        guard !red.isEmpty else { return [] }
+        return [red, green, blue].map { $0.sorted()[$0.count / 2] }
     }
     // Locate the counter's dark blue video surface in the system compositor screenshot.
     // The separate fixture has no surface in this colour.

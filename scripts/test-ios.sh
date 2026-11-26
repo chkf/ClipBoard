@@ -22,14 +22,21 @@ if [[ -e build/Tests.xcresult ]]; then
   mv build/Tests.xcresult "$previous/"
 fi
 defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
-xcrun simctl boot "$device" || xcrun simctl bootstatus "$device" -b
 xcodebuild -quiet build-for-testing -project Clipboard.xcodeproj -scheme Clipboard \
   -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
   CODE_SIGN_IDENTITY=- | tee build/tests.log
+xcrun simctl boot "$device" || xcrun simctl bootstatus "$device" -b
 xcrun simctl bootstatus "$device" -b
 xcrun simctl ui "$device" appearance "${CLIPBOARD_TEST_APPEARANCE:-light}"
 xcrun simctl install "$device" build/DerivedData/Build/Products/Debug-iphonesimulator/ClipboardTestHost.app
 if [[ "${CLIPBOARD_TEST_FOCUS:-keyboard}" == controls ]]; then
+  xcrun simctl install "$device" build/DerivedData/Build/Products/Debug-iphonesimulator/Clipboard.app
+  save_control_log() {
+    xcrun simctl spawn "$device" log show --last 30m --style compact \
+      --predicate 'eventMessage CONTAINS[c] "net.chkf.Clipboard.controls" OR eventMessage CONTAINS[c] "net.chkf.Clipboard.collect"' \
+      | tail -n 400 >build/controls-registration.log || true
+  }
+  trap save_control_log EXIT
   xcodebuild test-without-building -project Clipboard.xcodeproj -scheme Clipboard \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
     -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult \
