@@ -16,6 +16,9 @@ struct HistoryView: View {
                         case .second: Task { await session.copy(row) }
                         }
                     })
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(verbatim: row.isImage ? "图片" : row.preview))
+                    .accessibilityIdentifier(row.isImage ? "historyImage" : "historyText")
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction { Task { await session.copy(row) } }
                     .accessibilityAction(named: "预览") { preview = row }

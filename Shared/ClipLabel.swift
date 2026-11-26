@@ -7,7 +7,7 @@ struct ClipLabel: View {
     @State private var thumbnail: UIImage?
 
     var body: some View {
-        Group {
+        HStack(spacing: 0) {
             if row.isImage {
                 Group {
                     if let thumbnail {

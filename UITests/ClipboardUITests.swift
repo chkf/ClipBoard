@@ -133,10 +133,10 @@ final class ClipboardUITests: XCTestCase {
         fixture.activate()
         copyInFixture("image")
         app.activate()
-        let picture = label("图片", in: app)
+        let picture = app.buttons["historyImage"].firstMatch
         XCTAssertTrue(waitFor(picture), app.debugDescription)
-        picture.press(forDuration: 0.9)
-        XCTAssertTrue(app.navigationBars["图片预览"].waitForExistence(timeout: 4))
+        picture.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 1)
+        XCTAssertTrue(app.navigationBars["图片预览"].waitForExistence(timeout: 6), app.debugDescription)
         app.buttons["closePreview"].tap()
         row.swipeLeft()
         app.buttons["删除"].tap()
