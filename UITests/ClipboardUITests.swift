@@ -38,6 +38,10 @@ final class ClipboardUITests: XCTestCase {
         return row
     }
 
+    private func tapSwitch(_ toggle: XCUIElement) {
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+    }
+
     func testEnabledKeyboardInHostTextField() {
         app.launch()
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
@@ -61,18 +65,24 @@ final class ClipboardUITests: XCTestCase {
         let fullAccess = settings.switches.firstMatch
         XCTAssertTrue(fullAccess.waitForExistence(timeout: 5), settings.debugDescription)
         if fullAccess.value as? String != "1" {
-            fullAccess.tap()
-            let allow = settings.buttons["Allow"], systemAllow = springboard.buttons["Allow"]
-            if allow.waitForExistence(timeout: 2) { allow.tap() }
-            else if systemAllow.exists { systemAllow.tap() }
+            tapSwitch(fullAccess)
+            for owner in [settings, springboard] {
+                let confirm = owner.buttons.matching(NSPredicate(format: "label IN %@", ["Allow", "允许"])).firstMatch
+                if confirm.waitForExistence(timeout: 2) { confirm.tap(); break }
+                let modal = owner.alerts.firstMatch.exists ? owner.alerts.firstMatch : owner.sheets.firstMatch
+                let grant = modal.buttons.matching(NSPredicate(format: "label IN[c] %@", ["Allow Full Access", "允许完全访问"])).firstMatch
+                if grant.exists { grant.tap(); break }
+            }
         }
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: fullAccess)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, settings.debugDescription)
         fixture.launch()
         fixture.buttons["Copy text"].tap()
         fixture.textViews["input"].tap()
-        let entry = label(text, in: fixture)
-        if !waitFor(entry, seconds: 4) {
+        let entry = fixture.buttons[text]
+        if !waitFor(entry, seconds: 8) && fixture.keyboards.keys.count > 2 {
             let next = fixture.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
-                ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "Emoji"],
+                ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "Emoji", "下一个键盘", "切换键盘"],
                 ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
             XCTAssertTrue(next.waitForExistence(timeout: 5), fixture.debugDescription)
             next.press(forDuration: 1.0)
@@ -117,7 +127,10 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertFalse(row.exists)
         app.buttons["openSettings"].tap()
         XCTAssertTrue(app.switches["autoSwitch"].exists)
-        app.switches["autoSwitch"].tap()
+        let autoSwitch = app.switches["autoSwitch"]
+        let previous = autoSwitch.value as? String
+        tapSwitch(autoSwitch)
+        XCTAssertNotEqual(autoSwitch.value as? String, previous)
         app.buttons["clearHistory"].tap()
         let cancel = app.alerts.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"])).firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 4), app.debugDescription)

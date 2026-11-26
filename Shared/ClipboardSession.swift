@@ -15,6 +15,7 @@ final class ClipboardSession: ObservableObject {
     @Published private(set) var message: String?
     @Published private(set) var mode: Mode = .app
     private(set) var store: HistoryStore?
+    private let keyboardAccess: (() -> Bool)?
     private let open: (Bool) async throws -> HistoryStore
     private var monitor: Task<Void, Never>?
     private var capture: Task<Void, Never>?
@@ -28,7 +29,9 @@ final class ClipboardSession: ObservableObject {
     private var lastPrune = Date.distantPast
     var active = true
 
-    init(open: @escaping (Bool) async throws -> HistoryStore = { try await HistoryStore.shared(readOnly: $0) }) {
+    init(keyboardAccess: (() -> Bool)? = nil,
+         open: @escaping (Bool) async throws -> HistoryStore = { try await HistoryStore.shared(readOnly: $0) }) {
+        self.keyboardAccess = keyboardAccess
         self.open = open
     }
 
@@ -71,6 +74,10 @@ final class ClipboardSession: ObservableObject {
 
     private func tick(_ cycle: UUID) async {
         guard generation == cycle, active else { return }
+        if case .keyboard(let previous) = mode, let current = keyboardAccess?(), current != previous {
+            start(.keyboard(fullAccess: current))
+            return
+        }
         do {
             if store == nil {
                 let connection = try await open(!mode.mayWrite)

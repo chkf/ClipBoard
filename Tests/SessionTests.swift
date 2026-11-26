@@ -13,7 +13,7 @@ final class SessionTests: XCTestCase {
     func testAutomaticCaptureReopenOwnWritesAndKeyboardReuse() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = try HistoryStore(directory: directory)
-        let session = ClipboardSession { _ in store }
+        let session = ClipboardSession(open: { _ in store })
         defer { session.stop(); try? FileManager.default.removeItem(at: directory) }
         let text = "  line one\nline two\nline three\n"
         UIPasteboard.general.string = text
@@ -67,7 +67,8 @@ final class SessionTests: XCTestCase {
         let text = "saved"
         try await store.observe(.text(text), stamp: PasteStamp(boot: 1, count: 1), replacing: nil)
         let reader = try HistoryStore(directory: directory, readOnly: true)
-        let session = ClipboardSession { _ in reader }
+        var fullAccess = false
+        let session = ClipboardSession(keyboardAccess: { fullAccess }) { readOnly in readOnly ? reader : store }
         defer { session.stop(); try? FileManager.default.removeItem(at: directory) }
         UIPasteboard.general.string = "must not capture"
         session.start(.keyboard(fullAccess: false))
@@ -81,5 +82,11 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(UIPasteboard.general.string, "must not capture")
         let rows = try await store.page()
         XCTAssertEqual(rows.map(\.preview), [text])
+        fullAccess = true
+        try await eventually { session.mode.mayWrite && session.rows.first?.preview == "must not capture" }
+        fullAccess = false
+        try await eventually { !session.mode.mayWrite && session.loaded }
+        UIPasteboard.general.string = "after revocation"
+        XCTAssertFalse(session.rows.contains { $0.preview == "after revocation" })
     }
 }

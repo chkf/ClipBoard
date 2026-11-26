@@ -36,6 +36,8 @@ jobs:
           xcodegen generate
       - name: Test app and keyboard on iOS 26
         if: matrix.task == 'simulator'
+        env:
+          CLIPBOARD_TEST_APPEARANCE: ${{ github.ref_type == 'tag' && 'dark' || 'light' }}
         run: bash scripts/test-ios.sh
       - name: Build and verify device IPA
         if: matrix.task == 'ipa'

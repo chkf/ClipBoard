@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 final class KeyboardViewController: UIInputViewController {
-    private let session = ClipboardSession()
+    private lazy var session = ClipboardSession(keyboardAccess: { [weak self] in self?.hasFullAccess ?? false })
     private let globe = UIButton(type: .system)
     private var height: NSLayoutConstraint?
     private var visible = false
