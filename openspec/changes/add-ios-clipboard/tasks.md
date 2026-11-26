@@ -12,4 +12,6 @@
 ## 3. 验证与交付
 
 - [x] 3.1 用模拟器验证共享数据、捕获边界、主程序交互和键盘行为。
-- [ ] 3.2 配置并验证 GitHub Actions 真机 IPA 编译、重签权限检查和标签发布。
+- [x] 3.2 配置并验证 GitHub Actions 真机 IPA 编译、重签权限检查和标签发布。
+
+`v1.0.1` 的 11 项 iOS 26 模拟器测试全部通过。公开下载的 IPA 与通过主 App 和键盘扩展签名校验的构建产物 SHA-256 一致。[构建与测试](https://github.com/chkf/ClipBoard/actions/runs/45771669868) · [正式发布](https://github.com/chkf/ClipBoard/releases/tag/v1.0.1)
