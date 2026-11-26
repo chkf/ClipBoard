@@ -94,6 +94,7 @@ actor HistoryStore {
         let url = directory.appendingPathComponent("History.sqlite3")
         db = try Database(url: url, readOnly: readOnly)
         guard !readOnly else { return }
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path)
         let database = db
         try database.transaction {
             try database.execute("""

@@ -29,6 +29,58 @@ final class ClipboardUITests: XCTestCase {
         application.descendants(matching: .any).matching(NSPredicate(format: "label == %@", value)).first
     }
 
+    private func settingsRow(_ title: String, in settings: XCUIApplication) -> XCUIElement {
+        let row = settings.staticTexts[title].firstMatch
+        for _ in 0..<5 {
+            if row.exists && row.isHittable { return row }
+            settings.swipeUp()
+        }
+        return row
+    }
+
+    func testEnabledKeyboardInHostTextField() {
+        app.launch()
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        settings.launch()
+        settingsRow("General", in: settings).tap()
+        settingsRow("Keyboard", in: settings).tap()
+        settingsRow("Keyboards", in: settings).tap()
+        let clipboard = settings.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard'")).first
+        if !clipboard.exists {
+            settings.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Add New Keyboard'")).first.tap()
+            XCTAssertTrue(clipboard.waitForExistence(timeout: 8), settings.debugDescription)
+            clipboard.tap()
+        }
+        XCTAssertTrue(clipboard.waitForExistence(timeout: 5))
+        clipboard.tap()
+        let fullAccess = settings.switches.firstMatch
+        XCTAssertTrue(fullAccess.waitForExistence(timeout: 5), settings.debugDescription)
+        if fullAccess.value as? String != "1" {
+            fullAccess.tap()
+            let allow = settings.buttons["Allow"]
+            if allow.waitForExistence(timeout: 3) { allow.tap() }
+        }
+        fixture.launch()
+        fixture.buttons["Copy text"].tap()
+        fixture.textViews["input"].tap()
+        let entry = label(text, in: fixture)
+        if !entry.exists {
+            let next = fixture.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
+                ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "Emoji"],
+                ["NextKeyboard", "InputModeSwitchKey"])).first
+            XCTAssertTrue(next.waitForExistence(timeout: 5), fixture.debugDescription)
+            next.press(forDuration: 1.0)
+            let menuItem = fixture.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard'")).first
+            if menuItem.waitForExistence(timeout: 2) { menuItem.tap() }
+            else { next.tap() }
+        }
+        XCTAssertTrue(waitFor(entry), fixture.debugDescription)
+        entry.tap()
+        XCTAssertEqual(fixture.textViews["input"].value as? String, text)
+        app.activate()
+        XCTAssertTrue(waitFor(label(text, in: app)), app.debugDescription)
+    }
+
     func testManagementWithAnotherAppsPasteboard() {
         app.launch()
         fixture.launch()

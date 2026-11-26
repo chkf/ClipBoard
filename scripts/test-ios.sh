@@ -15,6 +15,10 @@ else:
     raise SystemExit("An iPhone simulator running iOS 26 is required")
 ')"
 mkdir -p build
+if [[ -e build/Tests.xcresult ]]; then
+  previous="$(mktemp -d "$PWD/build/previous-tests.XXXXXX")"
+  mv build/Tests.xcresult "$previous/"
+fi
 defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
 xcrun simctl boot "$device" || xcrun simctl bootstatus "$device" -b
 xcrun simctl bootstatus "$device" -b

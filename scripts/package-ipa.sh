@@ -4,11 +4,12 @@ set -euo pipefail
 version="$1"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Expected a numeric release version"; exit 1; }
 output="$PWD/build"
+mkdir -p "$output/release"
 work="$(mktemp -d "$output/package.XXXXXX")"
 app="$work/Payload/Clipboard.app"
 extension="$app/PlugIns/ClipboardKeyboard.appex"
 asset="Clipboard-$version-resign.ipa"
-mkdir -p "$work/Payload" "$output/release"
+mkdir -p "$work/Payload"
 
 xcodebuild archive -project Clipboard.xcodeproj -scheme Clipboard -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$work/Clipboard.xcarchive" \

@@ -19,6 +19,7 @@ enum SystemPasteboard {
         for provider in providers {
             try Task.checkCancellation()
             let types = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
+            if provider.registeredTypeIdentifiers.isEmpty { throw HistoryError.unreadable }
             if let image = types.first(where: { $0.conforms(to: .image) }) {
                 let data = try await representation(image.identifier, from: provider)
                 return try ImageContent.prepare(data)

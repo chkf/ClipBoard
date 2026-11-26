@@ -25,7 +25,6 @@ final class KeyboardViewController: UIInputViewController {
         globe.accessibilityLabel = "切换键盘"
         globe.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
         let switchRow = UIStackView(arrangedSubviews: [globe, UIView()])
-        switchRow.tag = 1
         switchRow.isHidden = !needsInputModeSwitchKey
         let column = UIStackView(arrangedSubviews: [host.view, switchRow])
         column.axis = .vertical

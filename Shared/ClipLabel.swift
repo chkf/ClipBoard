@@ -16,7 +16,8 @@ struct ClipLabel: View {
                         Image(systemName: "photo").foregroundStyle(.secondary)
                     }
                 }
-                .frame(maxWidth: 220, maxHeight: compact ? 52 : 86, alignment: .leading)
+                .frame(height: compact ? 52 : 86)
+                .frame(maxWidth: 220, alignment: .leading)
                 .accessibilityLabel("图片")
                 .task(id: row.id) {
                     thumbnail = nil
