@@ -148,4 +148,27 @@ final class HistoryTests: XCTestCase {
         let text = try await SystemPasteboard.read([NSItemProvider(object: raw as NSString)])
         XCTAssertEqual(text?.body.data, Data(raw.utf8))
     }
+
+    func testFailedProviderDoesNotConsumeTheCopyEvent() async throws {
+        try await capture(.text("previous"), 1)
+        let stamp = PasteStamp(boot: 100, count: 2)
+        let expected = try await store.state().event
+        let denied = NSItemProvider()
+        denied.registerDataRepresentation(forTypeIdentifier: UTType.utf8PlainText.identifier, visibility: .all) { complete in
+            complete(nil, CocoaError(.fileReadNoPermission))
+            return nil
+        }
+        do {
+            let clip = try await SystemPasteboard.read([denied])
+            try await store.observe(clip, stamp: stamp, replacing: expected)
+            XCTFail("A denied representation must not consume the event")
+        } catch HistoryError.unreadable {}
+        let previous = try await store.state().event
+        XCTAssertEqual(previous, expected)
+        let rows = try await store.page()
+        XCTAssertEqual(rows.map(\.preview), ["previous"])
+        try await store.observe(.text("allowed"), stamp: stamp, replacing: expected)
+        let allowed = try await store.page()
+        XCTAssertEqual(allowed.first?.preview, "allowed")
+    }
 }

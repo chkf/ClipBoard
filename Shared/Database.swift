@@ -45,7 +45,11 @@ final class Database {
         handle = connection
         sqlite3_busy_timeout(connection, 3_000)
         try execute("PRAGMA foreign_keys = ON")
-        if !readOnly { try execute("PRAGMA secure_delete = ON") }
+        if !readOnly {
+            try execute("PRAGMA secure_delete = ON")
+            // Set before creating the schema so deleting originals also returns their pages to iOS.
+            try execute("PRAGMA auto_vacuum = FULL")
+        }
     }
 
     deinit { sqlite3_close(handle) }
@@ -95,7 +99,7 @@ final class Database {
             try execute("COMMIT")
             return value
         } catch {
-            try? execute("ROLLBACK")
+            _ = try? execute("ROLLBACK")
             throw error
         }
     }

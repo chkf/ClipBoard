@@ -10,6 +10,11 @@ permissions:
 
 jobs:
   build:
+    name: ${{ matrix.task }}
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [simulator, ipa]
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -30,8 +35,10 @@ jobs:
           command -v xcodegen || brew install xcodegen
           xcodegen generate
       - name: Test app and keyboard on iOS 26
+        if: matrix.task == 'simulator'
         run: bash scripts/test-ios.sh
       - name: Build and verify device IPA
+        if: matrix.task == 'ipa'
         run: |
           version="$(awk '/^    MARKETING_VERSION:/ {print $2}' project.yml)"
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
@@ -39,18 +46,20 @@ jobs:
           fi
           bash scripts/package-ipa.sh "$version"
       - uses: actions/upload-artifact@v4
+        if: matrix.task == 'ipa'
         with:
           name: Clipboard-IPA
           path: build/release/
           if-no-files-found: error
       - name: Save test evidence
-        if: always()
+        if: always() && matrix.task == 'simulator'
         run: |
           if [[ -d build/Tests.xcresult ]]; then
+            xcrun xcresulttool get test-results summary --path build/Tests.xcresult || true
             ditto -ck --keepParent build/Tests.xcresult build/Tests.xcresult.zip
           fi
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && matrix.task == 'simulator'
         with:
           name: iOS-test-results
           path: |

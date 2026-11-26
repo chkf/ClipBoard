@@ -150,7 +150,7 @@ final class ClipboardSession: ObservableObject {
         guard mode.mayWrite, let store else { return false }
         let cycle = generation
         do {
-            try await store.copy(row.id, write: SystemPasteboard.write)
+            try await store.copy(row.id) { try SystemPasteboard.write($0) }
             guard generation == cycle else { return false }
             message = nil
             copied += 1

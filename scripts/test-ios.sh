@@ -21,11 +21,12 @@ if [[ -e build/Tests.xcresult ]]; then
 fi
 defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
 xcrun simctl boot "$device" || xcrun simctl bootstatus "$device" -b
+xcodebuild -quiet build-for-testing -project Clipboard.xcodeproj -scheme Clipboard \
+  -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
+  CODE_SIGN_IDENTITY=- | tee build/tests.log
 xcrun simctl bootstatus "$device" -b
-xcodebuild build -project Clipboard.xcodeproj -scheme ClipboardTestHost -configuration Debug \
-  -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData CODE_SIGN_IDENTITY=-
 xcrun simctl install "$device" build/DerivedData/Build/Products/Debug-iphonesimulator/ClipboardTestHost.app
-xcodebuild test -project Clipboard.xcodeproj -scheme Clipboard \
+xcodebuild test-without-building -project Clipboard.xcodeproj -scheme Clipboard \
   -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
   -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult \
-  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- | tee build/tests.log
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- | tee -a build/tests.log
