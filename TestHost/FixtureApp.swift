@@ -41,6 +41,7 @@ struct FixtureApp: App {
                 if ProcessInfo.processInfo.arguments.contains("-MeasureKeyboardSwitch") {
                     Button("Track keyboard") { measure = true }
                     KeyboardFrameProbe(measure: measure).frame(width: 2, height: 2)
+                        .accessibilityIdentifier("keyboardTravel")
                 }
                 KeyboardField(text: $input).frame(height: 100).border(.secondary)
                 Text(verbatim: input).accessibilityIdentifier("inserted")
@@ -98,6 +99,7 @@ private struct KeyboardFrameProbe: UIViewRepresentable {
     static func dismantleUIView(_ view: FrameView, coordinator: ()) { view.end() }
 
     final class FrameView: UIView {
+        private let marker = UIView()
         private var display: CADisplayLink?
         private var first: CGFloat?
         private var last: CGFloat = 0
@@ -105,9 +107,20 @@ private struct KeyboardFrameProbe: UIViewRepresentable {
         private var samples = 0
 
         func begin() {
-            guard display == nil else { return }
+            guard display == nil, let owner = window?.rootViewController?.view else { return }
             isAccessibilityElement = true
             accessibilityIdentifier = "keyboardTravel"
+            // Follow the presentation layer so the probe sees motion between layout passes.
+            marker.isUserInteractionEnabled = false
+            marker.translatesAutoresizingMaskIntoConstraints = false
+            owner.addSubview(marker)
+            NSLayoutConstraint.activate([
+                marker.topAnchor.constraint(equalTo: owner.keyboardLayoutGuide.topAnchor),
+                marker.leadingAnchor.constraint(equalTo: owner.leadingAnchor),
+                marker.heightAnchor.constraint(equalToConstant: 1),
+                marker.widthAnchor.constraint(equalToConstant: 1)
+            ])
+            owner.layoutIfNeeded()
             let link = CADisplayLink(target: self, selector: #selector(sample))
             display = link
             link.add(to: .main, forMode: .common)
@@ -118,7 +131,7 @@ private struct KeyboardFrameProbe: UIViewRepresentable {
             guard let owner = window?.rootViewController?.view else { return }
             let frame = owner.keyboardLayoutGuide.layoutFrame
             if first == nil && frame.height < 80 { return }
-            let y = frame.minY
+            let y = marker.layer.presentation()?.frame.minY ?? marker.frame.minY
             if first == nil { first = y; last = y }
             travel += abs(y - last)
             last = y
@@ -129,6 +142,10 @@ private struct KeyboardFrameProbe: UIViewRepresentable {
             get { "\(samples),\(first ?? 0),\(last),\(travel)" }
             set {}
         }
-        func end() { display?.invalidate(); display = nil }
+        func end() {
+            display?.invalidate()
+            display = nil
+            marker.removeFromSuperview()
+        }
     }
 }

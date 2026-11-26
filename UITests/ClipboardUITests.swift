@@ -62,6 +62,11 @@ final class ClipboardUITests: XCTestCase {
         app.launch()
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
         settings.launch()
+        for _ in 0..<5 where !settings.navigationBars["Settings"].exists {
+            let back = settings.navigationBars.firstMatch.buttons.firstMatch
+            guard back.exists else { break }
+            back.tap()
+        }
         settingsRow("General", in: settings).tap()
         XCTAssertTrue(settings.navigationBars["General"].waitForExistence(timeout: 8), settings.debugDescription)
         settingsRow("Keyboard", in: settings).tap()
@@ -132,34 +137,40 @@ final class ClipboardUITests: XCTestCase {
         key.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
     }
 
+    private var visibleAppKeyboard: XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "elementType == %d OR identifier IN %@",
+            XCUIElement.ElementType.keyboard.rawValue, ["keyboardSpace", "autoSwitch"]
+        )).firstMatch
+    }
+
     func testSetupStaysQuietUntilTrialIsRequested() {
         app.launch()
         XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 8))
-        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1.5))
+        XCTAssertFalse(visibleAppKeyboard.waitForExistence(timeout: 1.5))
         screenshot("ClipboardSetup", in: app)
         app.buttons["tryKeyboard"].tap()
         XCTAssertTrue(app.textViews["trialInput"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(visibleAppKeyboard.waitForExistence(timeout: 8), app.debugDescription)
         app.buttons["finishTrial"].tap()
         XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 6))
         XCTAssertFalse(app.textViews["trialInput"].exists)
     }
 
-    func testKeyboardKeysManagementAndHistoryAcrossHosts() {
+    func testSystemKeyboardSwitchKeepsFrameSteady() {
         enableKeyboard()
-        // Resolve the first paste permission before measuring a keyboard switch.
         fixture.launch()
         copyInFixture("second")
         fixture.textViews["input"].tap()
-        selectClipboard(in: fixture, expecting: historyKey("短句", in: fixture))
+        let short = historyKey("短句", in: fixture)
+        selectClipboard(in: fixture, expecting: short)
         fixture.terminate()
         fixture.launchArguments = ["-MeasureKeyboardSwitch"]
         fixture.launch()
-        let input = fixture.textViews["input"]
-        input.tap()
-        XCTAssertTrue(fixture.keyboards.keys["q"].waitForExistence(timeout: 8), fixture.debugDescription)
+        fixture.textViews["input"].tap()
+        let englishKey = fixture.keyboards.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch
+        XCTAssertTrue(englishKey.waitForExistence(timeout: 8), fixture.debugDescription)
         fixture.buttons["Track keyboard"].tap()
-        let short = historyKey("短句", in: fixture)
         selectClipboard(in: fixture, expecting: short)
         let probe = fixture.descendants(matching: .any).matching(identifier: "keyboardTravel").firstMatch
         let samples = (probe.value as? String ?? "").split(separator: ",").compactMap { Double($0) }
@@ -170,7 +181,19 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertLessThan(samples[1], Double(fixture.frame.height) * 0.92)
         let extraTravel = samples[3] - abs(samples[2] - samples[1])
         XCTContext.runActivity(named: "System to Clipboard: top \(samples[1]) → \(samples[2]) pt; reverse travel \(extraTravel) pt") { _ in }
+        XCTAssertGreaterThan(samples[2], Double(fixture.frame.height) * 0.4)
+        XCTAssertLessThan(samples[2], Double(fixture.frame.height) * 0.92)
         XCTAssertLessThanOrEqual(extraTravel, 8, "Keyboard layout guide reversed direction during the switch")
+    }
+
+    func testKeyboardKeysManagementAndHistoryAcrossHosts() {
+        enableKeyboard()
+        fixture.launch()
+        copyInFixture("second")
+        let input = fixture.textViews["input"]
+        input.tap()
+        let short = historyKey("短句", in: fixture)
+        selectClipboard(in: fixture, expecting: short)
         let commandY = fixture.buttons["keyboardSpace"].frame.midY
         let firstKeyY = short.frame.minY
         tapTrailingEdge(short, in: fixture)
@@ -197,7 +220,7 @@ final class ClipboardUITests: XCTestCase {
 
         app.activate()
         XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 8))
-        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1.5))
+        XCTAssertFalse(visibleAppKeyboard.waitForExistence(timeout: 1.5))
         app.buttons["tryKeyboard"].tap()
         let trialKey = historyKey("短句", in: app)
         selectClipboard(in: app, expecting: trialKey)
@@ -214,6 +237,8 @@ final class ClipboardUITests: XCTestCase {
         selectClipboard(in: app, expecting: toggle)
         let before = toggle.value as? String
         tapSwitch(toggle)
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", before ?? ""), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed)
         let after = toggle.value as? String
         XCTAssertNotEqual(before, after)
         app.buttons["7 天"].tap()
@@ -222,7 +247,7 @@ final class ClipboardUITests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 6))
-        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1.5))
+        XCTAssertFalse(visibleAppKeyboard.waitForExistence(timeout: 1.5))
         app.buttons["openKeyboardSettings"].tap()
         selectClipboard(in: app, expecting: toggle)
         XCTAssertEqual(toggle.value as? String, after)
