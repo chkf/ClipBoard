@@ -51,6 +51,7 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(fixture.wait(for: .runningForeground, timeout: 8))
         let button = fixture.buttons["Copy " + type]
         let expected = type.capitalized + " copied"
+        XCTAssertTrue(button.waitForExistence(timeout: 8), fixture.debugDescription)
         button.tap()
         let status = fixture.staticTexts["copyStatus"]
         let written = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", expected), object: status)
@@ -128,9 +129,7 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["closePreview"].waitForExistence(timeout: 4))
         XCTAssertTrue(label(text, in: app).exists)
         app.buttons["closePreview"].tap()
-        row.tap()
-        XCTAssertTrue(app.staticTexts["已复制"].waitForExistence(timeout: 3) || label("已复制", in: app).exists)
-        fixture.activate()
+        fixture.launch()
         copyInFixture("image")
         app.activate()
         let picture = app.buttons["historyImage"].firstMatch
@@ -138,6 +137,11 @@ final class ClipboardUITests: XCTestCase {
         picture.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 1)
         XCTAssertTrue(app.navigationBars["图片预览"].waitForExistence(timeout: 6), app.debugDescription)
         app.buttons["closePreview"].tap()
+        let topEntry = app.buttons.matching(NSPredicate(format: "identifier IN %@", ["historyImage", "historyText"])).firstMatch
+        XCTAssertEqual(topEntry.identifier, "historyImage", app.debugDescription)
+        row.tap()
+        let recopied = XCTNSPredicateExpectation(predicate: NSPredicate(format: "identifier == 'historyText'"), object: topEntry)
+        XCTAssertEqual(XCTWaiter.wait(for: [recopied], timeout: 8), .completed, app.debugDescription)
         row.swipeLeft()
         app.buttons["删除"].tap()
         XCTAssertFalse(row.exists)

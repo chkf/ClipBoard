@@ -30,7 +30,10 @@ struct FixtureApp: App {
                 Text(verbatim: copyStatus).accessibilityIdentifier("copyStatus")
                 KeyboardField(text: $input).frame(height: 100).border(.secondary)
                 Text(verbatim: input).accessibilityIdentifier("inserted")
-            }.padding()
+            }
+            .padding()
+            .buttonStyle(.bordered)
+            .controlSize(.large)
         }
     }
 
