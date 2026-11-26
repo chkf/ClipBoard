@@ -43,12 +43,19 @@ struct HistoryView: View {
             }
             .navigationTitle("Clipboard")
             .toolbar {
+                if session.privateHistory {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("同步键盘历史", systemImage: "arrow.triangle.2.circlepath") { session.syncAgain() }
+                            .accessibilityIdentifier("syncKeyboard")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("设置", systemImage: "gearshape") { settingsPresented = true }
                         .accessibilityIdentifier("openSettings")
                 }
             }
             .safeAreaInset(edge: .bottom) {
+                if session.privateHistory { HistorySyncPanel(sync: session.sync) }
                 if let message = session.message {
                     Text(message).font(.footnote).foregroundStyle(.secondary)
                         .padding().frame(maxWidth: .infinity).background(.bar)

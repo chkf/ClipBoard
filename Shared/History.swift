@@ -71,16 +71,25 @@ struct HistoryState {
 }
 
 actor HistoryStore {
-    private let db: Database
+    let db: Database
     let readOnly: Bool
+    let privateDirectory: URL?
 
     static func shared(readOnly: Bool = false) async throws -> HistoryStore {
-        let root = try HistoryContainer.url()
-        return try HistoryStore(directory: root.appendingPathComponent("History", isDirectory: true), readOnly: readOnly)
+        do {
+            let root = try HistoryContainer.url()
+            return try HistoryStore(directory: root.appendingPathComponent("History", isDirectory: true), readOnly: readOnly)
+        } catch HistoryError.sharedContainer {
+            let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                                    appropriateFor: nil, create: !readOnly)
+            return try HistoryStore(directory: root.appendingPathComponent("ClipboardHistory", isDirectory: true),
+                                    readOnly: readOnly, privateStorage: true)
+        }
     }
 
-    init(directory: URL, readOnly: Bool = false) throws {
+    init(directory: URL, readOnly: Bool = false, privateStorage: Bool = false) throws {
         self.readOnly = readOnly
+        self.privateDirectory = privateStorage ? directory : nil
         if !readOnly {
             var folder = directory
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
@@ -113,6 +122,14 @@ actor HistoryStore {
                     revision INTEGER NOT NULL DEFAULT 0, boot REAL, counter INTEGER, last_key TEXT)
                 """)
             try database.execute("INSERT OR IGNORE INTO state(id) VALUES(1)")
+            if privateStorage {
+                try database.execute("""
+                    CREATE TABLE IF NOT EXISTS replica (id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL,
+                      cleared REAL NOT NULL DEFAULT 0, peer TEXT, seen INTEGER NOT NULL DEFAULT -1)
+                """)
+                try database.execute("INSERT OR IGNORE INTO replica(id,identity) VALUES(1,?)", [.text(UUID().uuidString)])
+                try database.execute("CREATE TABLE IF NOT EXISTS removed (content_key TEXT PRIMARY KEY, deleted REAL NOT NULL)")
+            }
         }
     }
 
@@ -201,10 +218,24 @@ actor HistoryStore {
         try db.execute("UPDATE state SET revision=revision+1 WHERE id=1")
     }
 
-    func delete(_ id: String? = nil) throws {
+    func delete(_ id: String? = nil, now: Date = Date()) throws {
         try db.transaction {
-            if let id { try db.execute("DELETE FROM clips WHERE id=?", [.text(id)]) }
-            else { try db.execute("DELETE FROM clips") }
+            if let id {
+                if privateDirectory != nil {
+                    try db.execute("""
+                        INSERT INTO removed SELECT content_key,max(updated,?) FROM clips WHERE id=?
+                        ON CONFLICT(content_key) DO UPDATE SET deleted=max(removed.deleted,excluded.deleted)
+                        """, [.real(now.timeIntervalSince1970), .text(id)])
+                }
+                try db.execute("DELETE FROM clips WHERE id=?", [.text(id)])
+            } else {
+                if privateDirectory != nil {
+                    try db.execute("UPDATE replica SET cleared=max(cleared,?,coalesce((SELECT max(updated) FROM clips),0))",
+                                   [.real(now.timeIntervalSince1970)])
+                    try db.execute("DELETE FROM removed WHERE deleted<=(SELECT cleared FROM replica)")
+                }
+                try db.execute("DELETE FROM clips")
+            }
             try bumpRevision()
         }
     }

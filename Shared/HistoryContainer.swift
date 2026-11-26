@@ -11,6 +11,9 @@ enum HistoryContainer {
             host = bundle
         }
         let configuration = host ?? bundle
+        if configuration.object(forInfoDictionaryKey: "ClipboardPrivateHistory") as? Bool == true {
+            throw HistoryError.sharedContainer
+        }
         let groups = candidates(
             configured: configuration.object(forInfoDictionaryKey: "ClipboardAppGroup") as? String,
             hostID: host?.bundleIdentifier,

@@ -10,6 +10,8 @@ def read_plist(path):
 
 app = Path(sys.argv[1])
 version = sys.argv[2]
+mode = sys.argv[3]
+assert mode in ("local", "resign")
 plugins = list((app / "PlugIns").glob("*.appex"))
 assert len(plugins) == 1, plugins
 keyboard = plugins[0]
@@ -28,11 +30,16 @@ for bundle, info in [(app, host), (keyboard, ext)]:
     assert info["MinimumOSVersion"] == "26.0"
     assert info["CFBundleShortVersionString"] == version
     assert info["ClipboardAppGroup"] == group
+    assert info.get("ClipboardPrivateHistory", False) is (mode == "local")
     assert "ALTAppGroups" not in info, "signer metadata belongs to the re-signed package"
     assert "arm64" in subprocess.check_output(["lipo", "-archs", binary], text=True).split()
     subprocess.run(["codesign", "--verify", "--strict", bundle], check=True)
-    entitlements = plistlib.loads(subprocess.check_output(["codesign", "--display", "--entitlements", "-", "--xml", bundle]))
-    assert entitlements["com.apple.security.application-groups"] == [group]
+    xml = subprocess.check_output(["codesign", "--display", "--entitlements", "-", "--xml", bundle])
+    entitlements = plistlib.loads(xml) if xml.strip() else {}
+    if mode == "local":
+        assert "com.apple.security.application-groups" not in entitlements
+    else:
+        assert entitlements["com.apple.security.application-groups"] == [group]
     assert not entitlements.get("get-task-allow")
     assert (bundle / "PrivacyInfo.xcprivacy").is_file()
-    print(info["CFBundleIdentifier"], version, group, "arm64 iPhoneOS")
+    print(info["CFBundleIdentifier"], version, mode, "arm64 iPhoneOS")

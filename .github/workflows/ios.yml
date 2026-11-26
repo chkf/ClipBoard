@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [simulator, ipa]
+        task: [simulator, private-simulator, ipa]
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -49,10 +49,19 @@ jobs:
             "$plist" -c 'Add :ALTAppGroups array' "$file"
             "$plist" -c "Add :ALTAppGroups:0 string $group" "$file"
           done
+      - name: Configure independent app and extension containers
+        if: matrix.task == 'private-simulator'
+        run: |
+          plist=/usr/libexec/PlistBuddy
+          "$plist" -c 'Delete :com.apple.security.application-groups' Config/Shared.entitlements
+          for file in Config/App.plist Config/Keyboard.plist; do
+            "$plist" -c 'Add :ClipboardPrivateHistory bool true' "$file"
+          done
       - name: Test app and keyboard on iOS 26
-        if: matrix.task == 'simulator'
+        if: matrix.task != 'ipa'
         env:
           CLIPBOARD_TEST_APPEARANCE: ${{ (github.ref_type == 'tag' || inputs.publish) && 'dark' || 'light' }}
+          CLIPBOARD_TEST_PRIVATE_SYNC: ${{ matrix.task == 'private-simulator' }}
         run: bash scripts/test-ios.sh
       - name: Build and verify device IPA
         if: matrix.task == 'ipa'
@@ -69,16 +78,16 @@ jobs:
           path: build/release/
           if-no-files-found: error
       - name: Save test evidence
-        if: always() && matrix.task == 'simulator'
+        if: always() && matrix.task != 'ipa'
         run: |
           if [[ -d build/Tests.xcresult ]]; then
             xcrun xcresulttool get test-results summary --path build/Tests.xcresult || true
             ditto -ck --keepParent build/Tests.xcresult build/Tests.xcresult.zip
           fi
       - uses: actions/upload-artifact@v4
-        if: always() && matrix.task == 'simulator'
+        if: always() && matrix.task != 'ipa'
         with:
-          name: iOS-test-results
+          name: iOS-test-results-${{ matrix.task }}
           path: |
             build/*.log
             build/Tests.xcresult.zip
@@ -120,9 +129,11 @@ jobs:
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
           适用于 iOS 26 及以上版本。Clipboard 在主 App 或自定义键盘打开时收集文本和图片，历史及设置保存在设备上。
 
-          在 SideStore 登录自己的 Apple ID，导入下方 IPA，选择保留扩展并为每个扩展注册 App ID。Clipboard 会识别 SideStore 重签后的共享组。使用自己的证书时，主 App 与键盘的描述文件须授权相同的 App Group。
+          用全能签或没有 App Group 的个人签，选 `-local.ipa`，重签整个 IPA 并保留键盘扩展。安装后在系统键盘设置中添加 Clipboard 并打开「允许完全访问」。
 
-          安装后在「设置」→「通用」→「键盘」中添加 Clipboard 并允许完全访问。
+          打开主 App 会发起本机同步。首次用地球键切到 Clipboard，核对相同的六位码，在主 App 和键盘各确认一次。之后打开主 App 时，Clipboard 键盘一出现就会自动合并历史。两个入口都关闭期间只能在下次读取系统剪贴板的当前内容。
+
+          已有共享 App Group 的用户可继续选 `-resign.ipa` 使用同一个历史库。SideStore 安装时选择保留并注册扩展。
 
           [安装、签名标识与校验说明](https://github.com/chkf/ClipBoard/blob/TAG/README.md)
           NOTES

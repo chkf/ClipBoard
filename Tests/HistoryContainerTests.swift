@@ -28,10 +28,17 @@ final class HistoryContainerTests: XCTestCase {
         }
     }
 
-    func testInstalledAppAndKeyboardResolveTheProvisionedContainer() throws {
+    func testInstalledAppAndKeyboardResolveTheProvisionedContainer() async throws {
         let host = Bundle.main
         let plugins = try XCTUnwrap(host.builtInPlugInsURL)
         let keyboard = try XCTUnwrap(Bundle(url: plugins.appendingPathComponent("ClipboardKeyboard.appex")))
+        if host.object(forInfoDictionaryKey: "ClipboardPrivateHistory") as? Bool == true {
+            XCTAssertThrowsError(try HistoryContainer.url(for: host))
+            XCTAssertThrowsError(try HistoryContainer.url(for: keyboard))
+            let store = try await HistoryStore.shared()
+            XCTAssertNotNil(store.privateDirectory)
+            return
+        }
         let provisioned = host.object(forInfoDictionaryKey: "ALTAppGroups") as? [String]
         let group = try XCTUnwrap(provisioned?.first ?? (host.object(forInfoDictionaryKey: "ClipboardAppGroup") as? String))
         let expected = try XCTUnwrap(FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group))

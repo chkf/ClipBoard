@@ -14,8 +14,11 @@ final class ClipboardSession: ObservableObject {
     @Published private(set) var copied = 0
     @Published private(set) var message: String?
     @Published private(set) var mode: Mode = .app
+    @Published private(set) var privateHistory = false
+    let sync = ForegroundHistorySync()
     private(set) var store: HistoryStore?
     private let keyboardAccess: (() -> Bool)?
+    private let syncInvitation: (() -> SyncInvitation?)?
     private let open: (Bool) async throws -> HistoryStore
     private var monitor: Task<Void, Never>?
     private var capture: Task<Void, Never>?
@@ -30,9 +33,10 @@ final class ClipboardSession: ObservableObject {
     private var lastPrune = Date.distantPast
     var active = true
 
-    init(keyboardAccess: (() -> Bool)? = nil,
+    init(keyboardAccess: (() -> Bool)? = nil, syncInvitation: (() -> SyncInvitation?)? = nil,
          open: @escaping (Bool) async throws -> HistoryStore = { try await HistoryStore.shared(readOnly: $0) }) {
         self.keyboardAccess = keyboardAccess
+        self.syncInvitation = syncInvitation
         self.open = open
     }
 
@@ -55,6 +59,8 @@ final class ClipboardSession: ObservableObject {
     }
 
     func stop() {
+        sync.stop()
+        privateHistory = false
         monitor?.cancel()
         capture?.cancel()
         if let notification { NotificationCenter.default.removeObserver(notification) }
@@ -87,8 +93,11 @@ final class ClipboardSession: ObservableObject {
                 if mode == .keyboard(fullAccess: true) { try await connection.keyboardConfigured() }
                 guard generation == cycle else { return }
                 store = connection
+                privateHistory = connection.privateDirectory != nil
+                if privateHistory, mode == .app { sync.offer(connection) }
             }
             guard let store else { return }
+            if privateHistory, mode == .keyboard(fullAccess: true) { sync.join(syncInvitation?(), store: store) }
             if mode.mayWrite, Date().timeIntervalSince(lastPrune) >= 60 {
                 try await store.prune()
                 guard generation == cycle else { return }
@@ -208,5 +217,9 @@ final class ClipboardSession: ObservableObject {
             try await change(store)
             try await refresh(store, cycle: cycle)
         } catch { if generation == cycle { message = error.localizedDescription } }
+    }
+
+    func syncAgain() {
+        if privateHistory, mode == .app, let store { sync.offer(store) }
     }
 }

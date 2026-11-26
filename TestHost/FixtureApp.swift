@@ -27,6 +27,15 @@ struct FixtureApp: App {
                     board.setData(data, forPasteboardType: "public.png")
                     confirmWrite("Image copied", after: before) { board.data(forPasteboardType: "public.png") == data }
                 }
+                Button("Copy second") {
+                    let board = UIPasteboard.general
+                    let before = board.changeCount
+                    board.string = "Saved while the main app was closed"
+                    confirmWrite("Second copied", after: before) { board.string == "Saved while the main app was closed" }
+                }
+                Button("Check clipboard image") {
+                    copyStatus = UIPasteboard.general.hasImages ? "Image still on clipboard" : "Image missing"
+                }
                 Text(verbatim: copyStatus).accessibilityIdentifier("copyStatus")
                 KeyboardField(text: $input).frame(height: 100).border(.secondary)
                 Text(verbatim: input).accessibilityIdentifier("inserted")

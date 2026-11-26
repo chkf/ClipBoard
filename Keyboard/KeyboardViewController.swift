@@ -2,7 +2,18 @@ import SwiftUI
 import UIKit
 
 final class KeyboardViewController: UIInputViewController {
-    private lazy var session = ClipboardSession(keyboardAccess: { [weak self] in self?.hasFullAccess ?? false })
+    private lazy var session = ClipboardSession(keyboardAccess: { [weak self] in self?.hasFullAccess ?? false },
+                                                syncInvitation: { [weak self] in self?.syncInvitation() })
+
+    private func syncInvitation() -> SyncInvitation? {
+        let proxy = textDocumentProxy
+        let contentType: UITextContentType? = proxy.textContentType ?? nil
+        if let offer = SyncInvitation(contentType?.rawValue) { return offer }
+        // Some input hosts omit custom text-content types. Only examine the selected sync marker,
+        // never the typed text before or after the cursor.
+        guard proxy.keyboardType == .URL, proxy.returnKeyType == .done else { return nil }
+        return SyncInvitation(proxy.selectedText)
+    }
     private let globe = UIButton(type: .system)
     private var height: NSLayoutConstraint?
     private var visible = false
@@ -84,6 +95,7 @@ private struct KeyboardHistory: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            KeyboardSyncStatus(sync: session.sync)
             if !session.mode.mayWrite {
                 Text("在系统键盘设置中允许完全访问，以收集剪贴板和复制图片。")
                     .font(.footnote).foregroundStyle(.secondary).padding(8)
@@ -112,6 +124,21 @@ private struct KeyboardHistory: View {
             showCopied = true
             try? await Task.sleep(for: .seconds(2))
             if !Task.isCancelled { showCopied = false }
+        }
+    }
+}
+
+private struct KeyboardSyncStatus: View {
+    @ObservedObject var sync: ForegroundHistorySync
+    var body: some View {
+        switch sync.phase {
+        case .pairing(let code):
+            Button("配对键盘 · " + code) { sync.approve() }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("pairKeyboard")
+        case .transferring:
+            ProgressView("正在同步历史").font(.footnote)
+        default: EmptyView()
         }
     }
 }

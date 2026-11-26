@@ -19,6 +19,8 @@ struct SettingsView: View {
                 Section {
                     Button("清空历史记录", role: .destructive) { confirming = true }
                         .accessibilityIdentifier("clearHistory")
+                } footer: {
+                    if session.privateHistory { Text("下次与键盘同步时，删除的记录和设置更改也会同步。") }
                 }
             }
             .alert("清空全部历史记录？", isPresented: $confirming) {
@@ -26,7 +28,9 @@ struct SettingsView: View {
                 Button("确认清空", role: .destructive) {
                     Task { await session.edit { try await $0.delete() } }
                 }
-            } message: { Text("保存的文本和图片将从这台设备移除。") }
+            } message: {
+                Text(session.privateHistory ? "立即清空主 App 的记录。键盘里对应的记录会在下次同步时移除。" : "保存的文本和图片将从这台设备移除。")
+            }
             .navigationTitle("设置")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

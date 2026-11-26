@@ -27,7 +27,13 @@ xcodebuild -quiet build-for-testing -project Clipboard.xcodeproj -scheme Clipboa
 xcrun simctl bootstatus "$device" -b
 xcrun simctl ui "$device" appearance "${CLIPBOARD_TEST_APPEARANCE:-light}"
 xcrun simctl install "$device" build/DerivedData/Build/Products/Debug-iphonesimulator/ClipboardTestHost.app
+private_test='ClipboardUITests/ClipboardUITests/testForegroundSyncWithIndependentKeyboardHistory'
+if [[ "${CLIPBOARD_TEST_PRIVATE_SYNC:-false}" == true ]]; then
+  selection=(-only-testing:ClipboardTests "-only-testing:$private_test")
+else
+  selection=("-skip-testing:$private_test")
+fi
 xcodebuild test-without-building -project Clipboard.xcodeproj -scheme Clipboard \
   -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
-  -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult \
+  -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult "${selection[@]}" \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- | tee -a build/tests.log

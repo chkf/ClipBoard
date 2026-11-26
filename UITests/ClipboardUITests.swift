@@ -58,7 +58,7 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [written], timeout: 8), .completed, fixture.debugDescription)
     }
 
-    func testEnabledKeyboardInHostTextField() {
+    private func enableKeyboard() {
         app.launch()
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
         settings.launch()
@@ -93,25 +93,71 @@ final class ClipboardUITests: XCTestCase {
         }
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: fullAccess)
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, settings.debugDescription)
+    }
+
+    private func selectClipboard(in owner: XCUIApplication, expecting entry: XCUIElement) {
+        if !waitFor(entry, seconds: 8) && owner.keyboards.keys.count > 2 {
+            let next = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
+                ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "Emoji", "下一个键盘", "切换键盘"],
+                ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
+            XCTAssertTrue(next.waitForExistence(timeout: 5), owner.debugDescription)
+            next.press(forDuration: 1.0)
+            let menuItem = owner.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard'")).firstMatch
+            if menuItem.waitForExistence(timeout: 2) { menuItem.tap() }
+            else { next.tap() }
+        }
+        XCTAssertTrue(waitFor(entry), owner.debugDescription)
+    }
+
+    func testEnabledKeyboardInHostTextField() {
+        enableKeyboard()
         fixture.launch()
         copyInFixture("text")
         fixture.textViews["input"].tap()
         let entry = fixture.buttons[text]
-        if !waitFor(entry, seconds: 8) && fixture.keyboards.keys.count > 2 {
-            let next = fixture.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
-                ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "Emoji", "下一个键盘", "切换键盘"],
-                ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
-            XCTAssertTrue(next.waitForExistence(timeout: 5), fixture.debugDescription)
-            next.press(forDuration: 1.0)
-            let menuItem = fixture.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Clipboard'")).firstMatch
-            if menuItem.waitForExistence(timeout: 2) { menuItem.tap() }
-            else { next.tap() }
-        }
-        XCTAssertTrue(waitFor(entry), fixture.debugDescription)
+        selectClipboard(in: fixture, expecting: entry)
         entry.tap()
         XCTAssertEqual(fixture.textViews["input"].value as? String, text)
         app.activate()
         XCTAssertTrue(waitFor(label(text, in: app)), app.debugDescription)
+    }
+
+    func testForegroundSyncWithIndependentKeyboardHistory() {
+        enableKeyboard()
+        fixture.launch()
+        copyInFixture("text")
+        fixture.textViews["input"].tap()
+        selectClipboard(in: fixture, expecting: fixture.buttons[text])
+        // The main app can read only the new image from the system pasteboard.
+        copyInFixture("image")
+        app.activate()
+        let main = app.buttons["pairMain"]
+        selectClipboard(in: app, expecting: main)
+        let keyboard = app.buttons["pairKeyboard"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 6), app.debugDescription)
+        let code = String(main.label.suffix(6))
+        XCTAssertTrue(code.count == 6 && code.allSatisfy(\.isNumber))
+        XCTAssertTrue(keyboard.label.hasSuffix(code))
+        main.tap()
+        keyboard.tap()
+        let finished = app.descendants(matching: .any).matching(identifier: "keyboardSynced").firstMatch
+        XCTAssertTrue(waitFor(finished), app.debugDescription)
+        let row = app.buttons.matching(identifier: "historyText").matching(NSPredicate(format: "label == %@", text)).firstMatch
+        XCTAssertTrue(waitFor(row), app.debugDescription)
+        fixture.launch()
+        fixture.buttons["Check clipboard image"].tap()
+        XCTAssertTrue(fixture.staticTexts["Image still on clipboard"].exists, fixture.debugDescription)
+        copyInFixture("second")
+        fixture.textViews["input"].tap()
+        let second = "Saved while the main app was closed"
+        selectClipboard(in: fixture, expecting: fixture.buttons[second])
+        copyInFixture("image")
+        app.activate()
+        // No pairing, toolbar tap, or keyboard-switch action on this foreground session.
+        XCTAssertTrue(waitFor(finished), app.debugDescription)
+        let secondRow = app.buttons.matching(identifier: "historyText").matching(NSPredicate(format: "label == %@", second)).firstMatch
+        XCTAssertTrue(waitFor(secondRow), app.debugDescription)
+        XCTAssertFalse(main.exists)
     }
 
     func testManagementWithAnotherAppsPasteboard() {
