@@ -39,6 +39,16 @@ jobs:
         run: |
           command -v xcodegen || brew install xcodegen
           xcodegen generate
+      - name: Simulate SideStore's shared group on the release simulator
+        if: matrix.task == 'simulator' && (github.ref_type == 'tag' || inputs.publish)
+        run: |
+          group='group.net.chkf.Clipboard.SIDETEST01'
+          plist=/usr/libexec/PlistBuddy
+          "$plist" -c "Set :com.apple.security.application-groups:0 $group" Config/Shared.entitlements
+          for file in Config/App.plist Config/Keyboard.plist; do
+            "$plist" -c 'Add :ALTAppGroups array' "$file"
+            "$plist" -c "Add :ALTAppGroups:0 string $group" "$file"
+          done
       - name: Test app and keyboard on iOS 26
         if: matrix.task == 'simulator'
         env:
@@ -110,7 +120,9 @@ jobs:
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
           适用于 iOS 26 及以上版本。Clipboard 在主 App 或自定义键盘打开时收集文本和图片，历史及设置保存在设备上。
 
-          下载 IPA 后，请用自己的 Apple 签名同时重签主 App 和内置键盘扩展。两份描述文件须授权相同的 App Group。安装后在「设置」→「通用」→「键盘」中添加 Clipboard 并允许完全访问。
+          在 SideStore 登录自己的 Apple ID，导入下方 IPA，选择保留扩展并为每个扩展注册 App ID。Clipboard 会识别 SideStore 重签后的共享组。使用自己的证书时，主 App 与键盘的描述文件须授权相同的 App Group。
+
+          安装后在「设置」→「通用」→「键盘」中添加 Clipboard 并允许完全访问。
 
           [安装、签名标识与校验说明](https://github.com/chkf/ClipBoard/blob/TAG/README.md)
           NOTES

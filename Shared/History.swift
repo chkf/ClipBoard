@@ -75,9 +75,7 @@ actor HistoryStore {
     let readOnly: Bool
 
     static func shared(readOnly: Bool = false) async throws -> HistoryStore {
-        guard let group = Bundle.main.object(forInfoDictionaryKey: "ClipboardAppGroup") as? String,
-              let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
-        else { throw HistoryError.sharedContainer }
+        let root = try HistoryContainer.url()
         return try HistoryStore(directory: root.appendingPathComponent("History", isDirectory: true), readOnly: readOnly)
     }
 

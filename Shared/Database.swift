@@ -6,7 +6,7 @@ enum HistoryError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .sharedContainer: return "无法访问共享历史。请检查主 App 和键盘的 App Group 签名。"
+        case .sharedContainer: return "无法打开共享历史。请在重签时保留键盘扩展，并让主 App 和键盘的描述文件授权同一个 App Group。"
         case .database: return "暂时无法访问历史记录，请在设备解锁后重试。"
         case .unreadable: return "未能读取剪贴板。请在系统询问时允许粘贴，或在系统设置中检查粘贴权限。"
         case .missing: return "这条记录已被移除。"

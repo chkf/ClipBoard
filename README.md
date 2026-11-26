@@ -4,10 +4,17 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/chkf/ClipBoard/releases/latest) 下载 `Clipboard-版本-resign.ipa`。同目录的 `.sha256` 可用 `shasum -a 256 -c 文件名.sha256` 验证。
-2. 用支持键盘扩展和 App Groups 的 Apple 签名配置重签 IPA。先签嵌入的 `ClipboardKeyboard.appex`，再签 `Clipboard.app`。主 App 与扩展各用一份匹配设备和标识的描述文件，两者须授权同一 App Group。发布包附带用于重签的临时签名。
-3. 安装重签后的 IPA。在「设置」→「通用」→「键盘」→「键盘」→「添加新键盘」中选择 Clipboard，点进该键盘并开启「允许完全访问」。
-4. 首次跨 App 读取时按需允许粘贴。在支持第三方键盘的输入框中，用地球键切换至 Clipboard。安全输入框及限制第三方键盘的 App 使用系统键盘。
+### 用自己的 Apple ID 和 SideStore
+
+1. 在 iPhone 上设置好 SideStore，登录自己的 Apple ID，再从本项目发布页下载 `Clipboard-版本-resign.ipa` 到「文件」。[SideStore 安装指南](https://docs.sidestore.io/) · [下载 Clipboard](https://github.com/chkf/ClipBoard/releases/latest)
+2. 在 SideStore 的「My Apps」点「＋」，选中 IPA。出现扩展选项时，选 **Keep App Extensions (Register App ID for Each Extension)**，让 SideStore 为主 App 和键盘分别签名。自 v1.0.2 起，两者都会使用 SideStore 分配的 Clipboard 共享组。
+3. 打开 Clipboard。进入系统「设置」→「通用」→「键盘」→「键盘」→「添加新键盘」，选 Clipboard，再打开「允许完全访问」。复制一行文字，打开 Clipboard 允许粘贴，然后到备忘录用地球键切换键盘，点击同一条记录试插入。
+
+免费 Apple ID 可以在自己的设备上测试 App。描述文件有效期为 7 天，可在 SideStore 的 My Apps 中刷新。这个 IPA 使用两个 App ID。发布页的 `.sha256` 文件可用 `shasum -a 256 -c 文件名.sha256` 校验。[Apple 个人团队说明](https://developer.apple.com/cn/help/account/basics/about-your-developer-account/) · [iOS 功能支持表](https://developer.apple.com/cn/help/account/reference/supported-capabilities-ios/)
+
+### 用已有证书或 Xcode
+
+用全能签等证书工具时，导入同一张 `.p12` 证书，并确认签名工具能给以下两个组件分别匹配 `.mobileprovision`。两个描述文件都要包含这台设备的授权，并在 `com.apple.security.application-groups` 中授权同一个组。保留 `PlugIns/ClipboardKeyboard.appex`，先签扩展、再签主 App，最后安装整个 IPA。
 
 | 签名配置 | 发布包的值 |
 | --- | --- |
@@ -15,7 +22,9 @@
 | 键盘扩展 | `net.chkf.Clipboard.keyboard` |
 | App Group | `group.net.chkf.Clipboard` |
 
-若使用自己的标识，请将两个 Info.plist 的 `ClipboardAppGroup` 和两份签名的 `com.apple.security.application-groups` 改为已注册的同一个组。也可从源码构建，在 `project.yml` 中设置 `CLIPBOARD_BUNDLE_ID`、`CLIPBOARD_APP_GROUP` 并在 Xcode 中选择自己的开发团队。
+证书工具没有写入 SideStore 的 `ALTAppGroups` 时，Clipboard 会先尝试配置的 `ClipboardAppGroup`，再尝试 `group.<重签后的主 App Bundle ID>`。若描述文件使用其他自定义组名，请在重签前将主 App 和键盘各自 `Info.plist` 的 `ClipboardAppGroup` 设为实际组名。仅有 `.p12` 无法赋予共享组权限。
+
+在 Mac 上也可以从源码安装。在 `project.yml` 填写唯一的 `CLIPBOARD_BUNDLE_ID` 和自己的 `CLIPBOARD_APP_GROUP`，执行 `xcodegen generate`。在 Xcode 的 Signing & Capabilities 给 Clipboard 和 ClipboardKeyboard 两个 target 选择同一 Personal Team 和同一 App Group，连接 iPhone 后运行 Clipboard。
 
 ## 使用
 
@@ -31,7 +40,7 @@
 ```sh
 xcodegen generate
 bash scripts/test-ios.sh
-bash scripts/package-ipa.sh 1.0.1
+bash scripts/package-ipa.sh 1.0.2
 ```
 
 真机 IPA 输出到 `build/release/`。在 GitHub Actions 的「iOS build and release」工作流选择 `main` 并勾选 `publish`，模拟器测试和真机包校验通过后，工作流会为本次提交创建版本标签并发布 IPA 和校验文件。也可以直接推送与 `MARKETING_VERSION` 对应的 `vX.Y.Z` 标签触发发布。测试用的宿主 App 只安装在模拟器中。

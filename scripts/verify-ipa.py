@@ -28,6 +28,7 @@ for bundle, info in [(app, host), (keyboard, ext)]:
     assert info["MinimumOSVersion"] == "26.0"
     assert info["CFBundleShortVersionString"] == version
     assert info["ClipboardAppGroup"] == group
+    assert "ALTAppGroups" not in info, "signer metadata belongs to the re-signed package"
     assert "arm64" in subprocess.check_output(["lipo", "-archs", binary], text=True).split()
     subprocess.run(["codesign", "--verify", "--strict", bundle], check=True)
     entitlements = plistlib.loads(subprocess.check_output(["codesign", "--display", "--entitlements", "-", "--xml", bundle]))
