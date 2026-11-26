@@ -5,12 +5,14 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var session = ClipboardSession(keyboardAccess: { [weak self] in self?.hasFullAccess ?? false })
     private let globe = UIButton(type: .system)
     private let returnKey = UIButton(type: .system)
-    private var height: NSLayoutConstraint?
+    private let commands = UIStackView()
+    private let settingsSpacer = UIView()
+    private let presentation = KeyboardPresentation()
     private var visible = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        let history = KeyboardHistory(session: session) { [weak self] row in
+        let history = KeyboardHistory(session: session, presentation: presentation) { [weak self] row in
             guard let self else { return }
             Task {
                 if row.isImage && !self.hasFullAccess { return }
@@ -34,7 +36,8 @@ final class KeyboardViewController: UIInputViewController {
         returnKey.addAction(UIAction { [weak self] _ in self?.textDocumentProxy.insertText("\n") }, for: .touchUpInside)
         globe.isHidden = !needsInputModeSwitchKey
 
-        let commands = UIStackView(arrangedSubviews: [globe, space, erase, returnKey])
+        settingsSpacer.isHidden = true
+        [globe, space, erase, returnKey, settingsSpacer].forEach { commands.addArrangedSubview($0) }
         commands.spacing = 6
         let column = UIStackView(arrangedSubviews: [host.view, commands])
         column.axis = .vertical
@@ -46,17 +49,16 @@ final class KeyboardViewController: UIInputViewController {
             column.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 6),
             column.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -6),
             column.topAnchor.constraint(equalTo: view.topAnchor),
-            column.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -5),
-            commands.heightAnchor.constraint(equalToConstant: 45),
-            erase.widthAnchor.constraint(equalToConstant: 54),
-            returnKey.widthAnchor.constraint(equalToConstant: 84)
+            column.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -5)
         ])
-        let globeWidth = globe.widthAnchor.constraint(equalToConstant: 48)
-        globeWidth.priority = .defaultHigh
-        globeWidth.isActive = true
-        height = view.heightAnchor.constraint(equalToConstant: 278)
-        height?.priority = UILayoutPriority(999)
-        height?.isActive = true
+        for (key, width) in [(globe, CGFloat(48)), (erase, 54), (returnKey, 84)] {
+            let constraint = key.widthAnchor.constraint(equalToConstant: width)
+            constraint.priority = .defaultHigh
+            constraint.isActive = true
+        }
+        let commandHeight = commands.heightAnchor.constraint(equalToConstant: 45)
+        commandHeight.priority = .defaultHigh
+        commandHeight.isActive = true
         host.didMove(toParent: self)
         NotificationCenter.default.addObserver(self, selector: #selector(hostBackground),
                                                name: .NSExtensionHostDidEnterBackground, object: nil)
@@ -108,26 +110,47 @@ final class KeyboardViewController: UIInputViewController {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         updateReturnKey()
+        if visible && session.active { hostActive() }
     }
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
         visible = true
         updateReturnKey()
         hostActive()
     }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        hostActive()
+    }
     override func viewWillDisappear(_ animated: Bool) {
         visible = false
-        session.stop()
+        session.active = false
         super.viewWillDisappear(animated)
     }
-    override func viewWillLayoutSubviews() {
-        super.viewWillLayoutSubviews()
-        globe.isHidden = !needsInputModeSwitchKey
-        height?.constant = traitCollection.verticalSizeClass == .compact ? 210 : 278
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // UIKit can still show the outgoing hierarchy during its input-mode transition.
+        if !visible { session.stop() }
     }
     @objc private func hostActive() {
-        if visible { session.start(fullAccess: hasFullAccess) }
+        guard visible else { return }
+        let proxy = textDocumentProxy
+        let type: UITextContentType? = proxy.textContentType ?? nil
+        let settings = type?.rawValue == ClipboardInputMode.settingsContext ||
+            (proxy.returnKeyType == .join && proxy.autocorrectionType == .no &&
+             proxy.selectedText == ClipboardInputMode.settingsContext)
+        if presentation.settings != settings {
+            presentation.settings = settings
+            // Leave the globe available on devices where UIKit asks the extension to supply it.
+            for key in commands.arrangedSubviews where key !== globe && key !== settingsSpacer { key.isHidden = settings }
+            settingsSpacer.isHidden = !settings
+        }
+        let hideGlobe = !needsInputModeSwitchKey
+        if globe.isHidden != hideGlobe { globe.isHidden = hideGlobe }
+        let hideCommands = settings && hideGlobe
+        if commands.isHidden != hideCommands { commands.isHidden = hideCommands }
+        session.start(fullAccess: hasFullAccess, captureEnabled: !settings)
     }
     @objc private func hostInactive() { session.active = false }
     @objc private func hostBackground() { session.stop() }

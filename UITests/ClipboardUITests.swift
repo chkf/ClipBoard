@@ -147,12 +147,32 @@ final class ClipboardUITests: XCTestCase {
 
     func testKeyboardKeysManagementAndHistoryAcrossHosts() {
         enableKeyboard()
+        // Resolve the first paste permission before measuring a keyboard switch.
         fixture.launch()
         copyInFixture("second")
+        fixture.textViews["input"].tap()
+        selectClipboard(in: fixture, expecting: historyKey("短句", in: fixture))
+        fixture.terminate()
+        fixture.launchArguments = ["-MeasureKeyboardSwitch"]
+        fixture.launch()
         let input = fixture.textViews["input"]
         input.tap()
+        XCTAssertTrue(fixture.keyboards.keys["q"].waitForExistence(timeout: 8), fixture.debugDescription)
+        fixture.buttons["Track keyboard"].tap()
         let short = historyKey("短句", in: fixture)
         selectClipboard(in: fixture, expecting: short)
+        let probe = fixture.descendants(matching: .any).matching(identifier: "keyboardTravel").firstMatch
+        let samples = (probe.value as? String ?? "").split(separator: ",").compactMap { Double($0) }
+        XCTAssertEqual(samples.count, 4)
+        guard samples.count == 4 else { return }
+        XCTAssertGreaterThan(samples[0], 2)
+        XCTAssertGreaterThan(samples[1], Double(fixture.frame.height) * 0.4)
+        XCTAssertLessThan(samples[1], Double(fixture.frame.height) * 0.92)
+        let extraTravel = samples[3] - abs(samples[2] - samples[1])
+        XCTContext.runActivity(named: "System to Clipboard: top \(samples[1]) → \(samples[2]) pt; reverse travel \(extraTravel) pt") { _ in }
+        XCTAssertLessThanOrEqual(extraTravel, 8, "Keyboard layout guide reversed direction during the switch")
+        let commandY = fixture.buttons["keyboardSpace"].frame.midY
+        let firstKeyY = short.frame.minY
         tapTrailingEdge(short, in: fixture)
         XCTAssertEqual(input.value as? String, "短句")
         fixture.buttons["keyboardSpace"].tap()
@@ -160,6 +180,10 @@ final class ClipboardUITests: XCTestCase {
         fixture.buttons["keyboardBackspace"].tap()
         fixture.buttons["keyboardReturn"].tap()
         XCTAssertEqual(input.value as? String, "短句 短\n", fixture.debugDescription)
+        XCTAssertEqual(short.frame.minY, firstKeyY, accuracy: 1)
+        XCTAssertEqual(fixture.buttons["keyboardSpace"].frame.midY, commandY, accuracy: 1)
+        XCTAssertFalse(fixture.buttons["keyboardSettings"].exists)
+        XCTAssertFalse(fixture.switches["autoSwitch"].exists)
 
         copyInFixture("text")
         XCTAssertTrue(waitFor(historyKey(text, in: fixture)), fixture.debugDescription)
@@ -184,9 +208,10 @@ final class ClipboardUITests: XCTestCase {
         tapTrailingEdge(toDelete, in: app)
         XCTAssertTrue(toDelete.waitForNonExistence(timeout: 5))
         app.buttons["closeKeyboardPanel"].tap()
-        app.buttons["keyboardSettings"].tap()
+        app.buttons["finishTrial"].tap()
+        app.buttons["openKeyboardSettings"].tap()
         let toggle = app.switches["autoSwitch"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 6), app.debugDescription)
+        selectClipboard(in: app, expecting: toggle)
         let before = toggle.value as? String
         tapSwitch(toggle)
         let after = toggle.value as? String
@@ -198,22 +223,25 @@ final class ClipboardUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["tryKeyboard"].waitForExistence(timeout: 6))
         XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1.5))
+        app.buttons["openKeyboardSettings"].tap()
+        selectClipboard(in: app, expecting: toggle)
+        XCTAssertEqual(toggle.value as? String, after)
+        XCTAssertTrue(app.buttons["7 天"].isSelected)
+        app.buttons["finishTrial"].tap()
 
+        fixture.launchArguments = []
         fixture.launch()
         fixture.textViews["input"].tap()
         selectClipboard(in: fixture, expecting: historyKey("图片", in: fixture))
         XCTAssertFalse(short.exists)
-        fixture.buttons["keyboardSettings"].tap()
-        XCTAssertEqual(fixture.switches["autoSwitch"].value as? String, after)
-        XCTAssertTrue(fixture.buttons["7 天"].isSelected)
+        fixture.buttons["editHistory"].tap()
         fixture.buttons["clearHistory"].tap()
         fixture.buttons["cancelClear"].tap()
         fixture.buttons["closeKeyboardPanel"].tap()
         XCTAssertTrue(picture.exists)
-        fixture.buttons["keyboardSettings"].tap()
+        fixture.buttons["editHistory"].tap()
         fixture.buttons["clearHistory"].tap()
         fixture.buttons["confirmClear"].tap()
-        fixture.buttons["closeKeyboardPanel"].tap()
         XCTAssertTrue(waitFor(label("暂无历史记录", in: fixture)), fixture.debugDescription)
         XCTAssertFalse(picture.exists)
     }

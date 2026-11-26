@@ -23,6 +23,7 @@ final class ClipboardSession: ObservableObject {
     private var pageEnd = false
     private var paging = false
     private var lastPrune = Date.distantPast
+    private var captureEnabled = true
     var active = true
 
     init(keyboardAccess: (() -> Bool)? = nil,
@@ -31,15 +32,18 @@ final class ClipboardSession: ObservableObject {
         self.open = open
     }
 
-    func start(fullAccess: Bool) {
+    func start(fullAccess: Bool, captureEnabled: Bool = true) {
         active = true
-        if monitor != nil, fullAccess == self.fullAccess { return }
+        if monitor != nil, fullAccess == self.fullAccess, captureEnabled == self.captureEnabled { return }
         stop()
         self.fullAccess = fullAccess
+        self.captureEnabled = captureEnabled
         let generation = self.generation
-        notification = NotificationCenter.default.addObserver(forName: UIPasteboard.changedNotification,
+        if captureEnabled {
+            notification = NotificationCenter.default.addObserver(forName: UIPasteboard.changedNotification,
                                                                object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in await self?.tick(generation) }
+                Task { @MainActor in await self?.tick(generation) }
+            }
         }
         monitor = Task { [weak self] in
             while !Task.isCancelled {
@@ -73,7 +77,7 @@ final class ClipboardSession: ObservableObject {
     private func tick(_ cycle: UUID) async {
         guard generation == cycle, active else { return }
         if let current = keyboardAccess?(), current != fullAccess {
-            start(fullAccess: current)
+            start(fullAccess: current, captureEnabled: captureEnabled)
             return
         }
         do {
@@ -89,7 +93,7 @@ final class ClipboardSession: ObservableObject {
                 lastPrune = Date()
             }
             let state = try await refresh(store, cycle: cycle)
-            guard generation == cycle, active, fullAccess else { return }
+            guard generation == cycle, active, fullAccess, captureEnabled else { return }
             let stamp = SystemPasteboard.stamp
             if captureStamp == stamp { return }
             capture?.cancel()
@@ -111,7 +115,7 @@ final class ClipboardSession: ObservableObject {
                     guard let providers = try SystemPasteboard.providers() else { return }
                     let clip = try await SystemPasteboard.read(providers)
                     try Task.checkCancellation()
-                    guard self.generation == cycle, SystemPasteboard.stamp == stamp else { return }
+                    guard self.generation == cycle, self.active, SystemPasteboard.stamp == stamp else { return }
                     try await store.observe(clip, stamp: stamp, replacing: state.event)
                     guard self.generation == cycle else { return }
                     self.message = nil

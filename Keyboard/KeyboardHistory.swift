@@ -19,45 +19,31 @@ private struct KeycapStyle: ButtonStyle {
     }
 }
 
+@MainActor
+final class KeyboardPresentation: ObservableObject {
+    @Published var settings = false
+}
+
 struct KeyboardHistory: View {
     @ObservedObject var session: ClipboardSession
+    @ObservedObject var presentation: KeyboardPresentation
     let select: (ClipRow) -> Void
-    private enum Page { case history, deletion, settings }
-    @State private var page = Page.history
+    @State private var deleting = false
     @State private var confirmingClear = false
     @State private var copiedImage = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 0) {
-                Text(page == .settings ? "键盘设置" : page == .deletion ? "删除历史" : copiedImage ? "图片已复制" : "剪贴板")
-                    .font(.headline).padding(.leading, 7)
-                Spacer()
-                if page == .history {
-                    Button { page = .deletion } label: {
-                        Image(systemName: "trash").frame(width: 44, height: 44).contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("删除历史记录").accessibilityIdentifier("editHistory")
-                    .disabled(!session.fullAccess || session.rows.isEmpty)
-                    Button { page = .settings } label: {
-                        Image(systemName: "gearshape").frame(width: 44, height: 44).contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("键盘设置").accessibilityIdentifier("keyboardSettings")
-                } else {
-                    Button("完成") { confirmingClear = false; page = .history }
-                        .frame(minWidth: 52, minHeight: 44).accessibilityIdentifier("closeKeyboardPanel")
-                }
-            }
-            .buttonStyle(.plain)
-            if page == .settings {
+            if presentation.settings {
                 settings
             } else {
+                toolbar
                 if !session.fullAccess {
                     note("在系统键盘设置中打开「允许完全访问」，即可保存和管理历史。")
                 } else if let message = session.message {
                     note(message)
                 }
-                if session.rows.isEmpty {
+                if session.rows.isEmpty && session.loaded {
                     Text("暂无历史记录").font(.subheadline).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -65,12 +51,12 @@ struct KeyboardHistory: View {
                         LazyVStack(spacing: 6) {
                             ForEach(session.rows) { row in
                                 Button {
-                                    if page == .deletion {
+                                    if deleting {
                                         Task { await session.edit { try await $0.delete(row.id) } }
                                     } else { select(row) }
                                 } label: {
                                     HStack(spacing: 10) {
-                                        if page == .deletion {
+                                        if deleting {
                                             Image(systemName: "minus.circle.fill").foregroundStyle(.red)
                                         }
                                         ClipLabel(row: row, session: session)
@@ -81,10 +67,10 @@ struct KeyboardHistory: View {
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(KeycapStyle())
-                                .disabled(!session.fullAccess && (row.isImage || page == .deletion))
+                                .disabled(!session.fullAccess && (row.isImage || deleting))
                                 .accessibilityLabel(Text(verbatim: row.isImage ? "图片" : row.preview))
-                                .accessibilityHint(page == .deletion ? "删除这条历史记录" : row.isImage ? "复制图片" : "插入文本")
-                                .accessibilityIdentifier(page == .deletion ? "deleteHistoryKey" : "historyKey")
+                                .accessibilityHint(deleting ? "删除这条历史记录" : row.isImage ? "复制图片" : "插入文本")
+                                .accessibilityIdentifier(deleting ? "deleteHistoryKey" : "historyKey")
                                 .task { await session.nextPage(after: row) }
                             }
                         }
@@ -96,7 +82,7 @@ struct KeyboardHistory: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onChange(of: session.fullAccess) { _, allowed in
-            if !allowed { page = .history; confirmingClear = false }
+            if !allowed { deleting = false; confirmingClear = false }
         }
         .task(id: session.copied) {
             guard session.copied > 0 else { return }
@@ -110,11 +96,41 @@ struct KeyboardHistory: View {
         Text(value).font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.bottom, 4)
     }
 
+    private var toolbar: some View {
+        HStack(spacing: 6) {
+            Text(confirmingClear ? "清空全部历史？" : deleting ? "删除历史" : copiedImage ? "图片已复制" : "剪贴板")
+                .font(.headline).padding(.leading, 7)
+            Spacer()
+            if confirmingClear {
+                Button("取消") { confirmingClear = false }.accessibilityIdentifier("cancelClear")
+                Button("确认清空", role: .destructive) {
+                    Task {
+                        await session.edit { try await $0.delete() }
+                        confirmingClear = false
+                        deleting = false
+                    }
+                }.accessibilityIdentifier("confirmClear")
+            } else if deleting {
+                Button("清空", role: .destructive) { confirmingClear = true }.accessibilityIdentifier("clearHistory")
+                Button("完成") { deleting = false }.accessibilityIdentifier("closeKeyboardPanel")
+            } else {
+                Button { deleting = true } label: {
+                    Image(systemName: "trash").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("删除历史记录").accessibilityIdentifier("editHistory")
+                .disabled(!session.fullAccess || session.rows.isEmpty)
+            }
+        }
+        .padding(.trailing, 4).frame(height: 44).buttonStyle(.borderless)
+    }
+
     private var settings: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text("保留期限").font(.subheadline)
+            VStack(alignment: .leading, spacing: 12) {
+                if !session.fullAccess { note("打开键盘的「允许完全访问」后即可修改设置。") }
+                if let message = session.message { note(message) }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("历史保留期限").font(.subheadline.weight(.semibold))
                     Picker("保留期限", selection: Binding(get: { session.settings.retention }, set: { days in
                         Task { await session.edit { try await $0.retention(days) } }
                     })) {
@@ -127,23 +143,9 @@ struct KeyboardHistory: View {
                     Task { await session.edit { try await $0.autoSwitch(enabled) } }
                 }))
                 .font(.subheadline).frame(minHeight: 44).accessibilityIdentifier("autoSwitch")
-                Divider()
-                if confirmingClear {
-                    HStack {
-                        Text("清空全部历史？").font(.subheadline)
-                        Spacer()
-                        Button("取消") { confirmingClear = false }.accessibilityIdentifier("cancelClear")
-                        Button("确认清空", role: .destructive) {
-                            Task { await session.edit { try await $0.delete() }; confirmingClear = false }
-                        }.accessibilityIdentifier("confirmClear")
-                    }.buttonStyle(.bordered).frame(minHeight: 44)
-                } else {
-                    Button("清空历史记录", role: .destructive) { confirmingClear = true }
-                        .frame(minHeight: 44).accessibilityIdentifier("clearHistory")
-                }
             }
-            .padding(.horizontal, 8)
-            .disabled(!session.fullAccess)
+            .padding(16)
+            .disabled(!session.fullAccess || !session.loaded)
         }
     }
 }

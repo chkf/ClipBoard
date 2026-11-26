@@ -6,6 +6,7 @@ import UIKit
 struct FixtureApp: App {
     @State private var input = ""
     @State private var copyStatus = ""
+    @State private var measure = false
     var body: some Scene {
         WindowGroup {
             VStack {
@@ -37,6 +38,10 @@ struct FixtureApp: App {
                     copyStatus = UIPasteboard.general.hasImages ? "Image still on clipboard" : "Image missing"
                 }
                 Text(verbatim: copyStatus).accessibilityIdentifier("copyStatus")
+                if ProcessInfo.processInfo.arguments.contains("-MeasureKeyboardSwitch") {
+                    Button("Track keyboard") { measure = true }
+                    KeyboardFrameProbe(measure: measure).frame(width: 2, height: 2)
+                }
                 KeyboardField(text: $input).frame(height: 100).border(.secondary)
                 Text(verbatim: input).accessibilityIdentifier("inserted")
             }
@@ -78,6 +83,52 @@ private struct KeyboardField: UIViewRepresentable {
 
 private final class FixtureTextView: UITextView {
     override var textInputMode: UITextInputMode? {
-        ClipboardInputMode.enabled ?? super.textInputMode
+        if ProcessInfo.processInfo.arguments.contains("-MeasureKeyboardSwitch"),
+           let english = UITextInputMode.activeInputModes.first(where: { $0.primaryLanguage?.hasPrefix("en") == true }) {
+            return english
+        }
+        return ClipboardInputMode.enabled ?? super.textInputMode
+    }
+}
+
+private struct KeyboardFrameProbe: UIViewRepresentable {
+    let measure: Bool
+    func makeUIView(context: Context) -> FrameView { FrameView() }
+    func updateUIView(_ view: FrameView, context: Context) { if measure { view.begin() } }
+    static func dismantleUIView(_ view: FrameView, coordinator: ()) { view.end() }
+
+    final class FrameView: UIView {
+        private var display: CADisplayLink?
+        private var first: CGFloat?
+        private var last: CGFloat = 0
+        private var travel: CGFloat = 0
+        private var samples = 0
+
+        func begin() {
+            guard display == nil else { return }
+            isAccessibilityElement = true
+            accessibilityIdentifier = "keyboardTravel"
+            let link = CADisplayLink(target: self, selector: #selector(sample))
+            display = link
+            link.add(to: .main, forMode: .common)
+            sample()
+        }
+
+        @objc private func sample() {
+            guard let owner = window?.rootViewController?.view else { return }
+            let frame = owner.keyboardLayoutGuide.layoutFrame
+            if first == nil && frame.height < 80 { return }
+            let y = frame.minY
+            if first == nil { first = y; last = y }
+            travel += abs(y - last)
+            last = y
+            samples += 1
+        }
+
+        override var accessibilityValue: String? {
+            get { "\(samples),\(first ?? 0),\(last),\(travel)" }
+            set {}
+        }
+        func end() { display?.invalidate(); display = nil }
     }
 }

@@ -4,7 +4,11 @@ import UIKit
 struct KeyboardSetupView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
-    @State private var tryingKeyboard = false
+    private enum Panel: String, Identifiable {
+        case trial, settings
+        var id: String { rawValue }
+    }
+    @State private var panel: Panel?
 
     var body: some View {
         NavigationStack {
@@ -26,7 +30,7 @@ struct KeyboardSetupView: View {
                         Label("试用键盘", systemImage: "text.cursor").font(.title3.bold())
                         Text("先复制一段文字，在输入框里切到 Clipboard，点一下记录即可插入。")
                             .foregroundStyle(.secondary)
-                        Button { tryingKeyboard = true } label: {
+                        Button { panel = .trial } label: {
                             Text("打开试用输入框").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("tryKeyboard")
@@ -40,38 +44,56 @@ struct KeyboardSetupView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Clipboard")
-        }
-        .sheet(isPresented: $tryingKeyboard) {
-            NavigationStack {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("如果看到的是其他键盘，长按地球键选择 Clipboard。")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    TrialInput()
-                        .background(.background, in: RoundedRectangle(cornerRadius: 14))
-                }
-                .padding(18)
-                .background(Color(uiColor: .systemGroupedBackground))
-                .navigationTitle("试用键盘").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { tryingKeyboard = false }.accessibilityIdentifier("finishTrial")
-                    }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("键盘设置", systemImage: "gearshape") { panel = .settings }
+                        .accessibilityIdentifier("openKeyboardSettings")
                 }
             }
         }
+        .sheet(item: $panel) { current in
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(current == .settings ? "下方选项直接保存到键盘。如果出现其他输入法，请用地球键选 Clipboard。" : "如果看到的是其他键盘，长按地球键选择 Clipboard。")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if current == .settings {
+                        TrialInput(settings: true).frame(height: 1).accessibilityHidden(true)
+                        Spacer(minLength: 0)
+                    } else {
+                        TrialInput(settings: false)
+                            .background(.background, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                }
+                .padding(18)
+                .background(Color(uiColor: .systemGroupedBackground))
+                .navigationTitle(current == .settings ? "键盘设置" : "试用键盘").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { panel = nil }.accessibilityIdentifier("finishTrial")
+                    }
+                }
+            }
+            .presentationDetents(current == .settings ? [.medium] : [.large])
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { tryingKeyboard = false }
+            if phase == .background { panel = nil }
         }
     }
 }
 
 private struct TrialInput: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> TrialController { TrialController() }
+    let settings: Bool
+    func makeUIViewController(context: Context) -> TrialController {
+        let controller = TrialController()
+        controller.settings = settings
+        return controller
+    }
     func updateUIViewController(_ controller: TrialController, context: Context) {}
 }
 
 private final class TrialController: UIViewController {
     private let editor = TrialTextView()
+    var settings = false
     override func loadView() {
         editor.backgroundColor = .clear
         editor.font = .preferredFont(forTextStyle: .body)
@@ -79,11 +101,21 @@ private final class TrialController: UIViewController {
         editor.textContainerInset = UIEdgeInsets(top: 14, left: 10, bottom: 14, right: 10)
         editor.accessibilityIdentifier = "trialInput"
         editor.accessibilityLabel = "试用输入框"
+        if settings {
+            editor.textContentType = UITextContentType(rawValue: ClipboardInputMode.settingsContext)
+            editor.text = ClipboardInputMode.settingsContext
+            editor.textColor = .clear
+            editor.tintColor = .clear
+            editor.autocorrectionType = .no
+            editor.returnKeyType = .join
+            editor.isAccessibilityElement = false
+        }
         view = editor
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         editor.becomeFirstResponder()
+        if settings { editor.selectedTextRange = editor.textRange(from: editor.beginningOfDocument, to: editor.endOfDocument) }
     }
 }
 
