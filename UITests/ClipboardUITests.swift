@@ -180,7 +180,7 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertGreaterThan(samples[1], Double(fixture.frame.height) * 0.4)
         XCTAssertLessThan(samples[1], Double(fixture.frame.height) * 0.92)
         let extraTravel = samples[3] - abs(samples[2] - samples[1])
-        XCTContext.runActivity(named: "System to Clipboard: top \(samples[1]) → \(samples[2]) pt; reverse travel \(extraTravel) pt") { _ in }
+        XCTContext.runActivity(named: "System to Clipboard: top \(samples[1]) → \(samples[2]) pt; reverse travel \(extraTravel) pt; path \(probe.label)") { _ in }
         XCTAssertGreaterThan(samples[2], Double(fixture.frame.height) * 0.4)
         XCTAssertLessThan(samples[2], Double(fixture.frame.height) * 0.92)
         XCTAssertLessThanOrEqual(extraTravel, 8, "Keyboard layout guide reversed direction during the switch")
@@ -196,8 +196,10 @@ final class ClipboardUITests: XCTestCase {
         selectClipboard(in: fixture, expecting: short)
         let commandY = fixture.buttons["keyboardSpace"].frame.midY
         let firstKeyY = short.frame.minY
+        screenshot("ClipboardShortKey", in: fixture)
+        XCTAssertLessThanOrEqual(short.frame.maxY, fixture.buttons["keyboardSpace"].frame.minY, fixture.debugDescription)
         tapTrailingEdge(short, in: fixture)
-        XCTAssertEqual(input.value as? String, "短句")
+        XCTAssertEqual(input.value as? String, "短句", fixture.debugDescription)
         fixture.buttons["keyboardSpace"].tap()
         tapTrailingEdge(short, in: fixture)
         fixture.buttons["keyboardBackspace"].tap()
@@ -232,6 +234,27 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(toDelete.waitForNonExistence(timeout: 5))
         app.buttons["closeKeyboardPanel"].tap()
         app.buttons["finishTrial"].tap()
+
+        fixture.launchArguments = []
+        fixture.launch()
+        fixture.textViews["input"].tap()
+        selectClipboard(in: fixture, expecting: historyKey("图片", in: fixture))
+        XCTAssertFalse(short.exists)
+        fixture.buttons["editHistory"].tap()
+        fixture.buttons["clearHistory"].tap()
+        fixture.buttons["cancelClear"].tap()
+        fixture.buttons["closeKeyboardPanel"].tap()
+        XCTAssertTrue(picture.exists)
+        fixture.buttons["editHistory"].tap()
+        fixture.buttons["clearHistory"].tap()
+        fixture.buttons["confirmClear"].tap()
+        XCTAssertTrue(waitFor(label("暂无历史记录", in: fixture)), fixture.debugDescription)
+        XCTAssertFalse(picture.exists)
+    }
+
+    func testSettingsFromAppPersistInKeyboard() {
+        enableKeyboard()
+        app.activate()
         app.buttons["openKeyboardSettings"].tap()
         let toggle = app.switches["autoSwitch"]
         selectClipboard(in: app, expecting: toggle)
@@ -253,21 +276,5 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, after)
         XCTAssertTrue(app.buttons["7 天"].isSelected)
         app.buttons["finishTrial"].tap()
-
-        fixture.launchArguments = []
-        fixture.launch()
-        fixture.textViews["input"].tap()
-        selectClipboard(in: fixture, expecting: historyKey("图片", in: fixture))
-        XCTAssertFalse(short.exists)
-        fixture.buttons["editHistory"].tap()
-        fixture.buttons["clearHistory"].tap()
-        fixture.buttons["cancelClear"].tap()
-        fixture.buttons["closeKeyboardPanel"].tap()
-        XCTAssertTrue(picture.exists)
-        fixture.buttons["editHistory"].tap()
-        fixture.buttons["clearHistory"].tap()
-        fixture.buttons["confirmClear"].tap()
-        XCTAssertTrue(waitFor(label("暂无历史记录", in: fixture)), fixture.debugDescription)
-        XCTAssertFalse(picture.exists)
     }
 }

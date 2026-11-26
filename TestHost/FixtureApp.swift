@@ -105,6 +105,7 @@ private struct KeyboardFrameProbe: UIViewRepresentable {
         private var last: CGFloat = 0
         private var travel: CGFloat = 0
         private var samples = 0
+        private var turns: [Int] = []
 
         func begin() {
             guard display == nil, let owner = window?.rootViewController?.view else { return }
@@ -132,6 +133,13 @@ private struct KeyboardFrameProbe: UIViewRepresentable {
             let frame = owner.keyboardLayoutGuide.layoutFrame
             if first == nil && frame.height < 80 { return }
             let y = marker.layer.presentation()?.frame.minY ?? marker.frame.minY
+            let point = Int(y.rounded())
+            if turns.last != point {
+                if turns.count > 1, let previous = turns.last,
+                   (point > previous) == (previous > turns[turns.count - 2]) {
+                    turns[turns.count - 1] = point
+                } else { turns.append(point) }
+            }
             if first == nil { first = y; last = y }
             travel += abs(y - last)
             last = y
@@ -140,6 +148,10 @@ private struct KeyboardFrameProbe: UIViewRepresentable {
 
         override var accessibilityValue: String? {
             get { "\(samples),\(first ?? 0),\(last),\(travel)" }
+            set {}
+        }
+        override var accessibilityLabel: String? {
+            get { turns.map(String.init).joined(separator: " → ") }
             set {}
         }
         func end() {

@@ -1,17 +1,46 @@
 import SwiftUI
 import UIKit
 
+private final class HistoryInputView: UIInputView {
+    // Set the fitting height before UIKit asks for the first animation frame.
+    // A scroll view has no intrinsic height, even when it has many history rows.
+    func fit(to traits: UITraitCollection) {
+        let height: CGFloat = traits.verticalSizeClass == .compact ? 162 : traits.userInterfaceIdiom == .pad ? 264 : 243
+        if let heightRequest {
+            if heightRequest.constant != height { heightRequest.constant = height }
+        } else {
+            let request = heightAnchor.constraint(equalToConstant: height)
+            request.priority = UILayoutPriority(999)
+            request.isActive = true
+            heightRequest = request
+        }
+    }
+
+    private var heightRequest: NSLayoutConstraint?
+}
+
 final class KeyboardViewController: UIInputViewController {
     private lazy var session = ClipboardSession(keyboardAccess: { [weak self] in self?.hasFullAccess ?? false })
     private let globe = UIButton(type: .system)
     private let returnKey = UIButton(type: .system)
     private let commands = UIStackView()
+    private var commandsHeight: NSLayoutConstraint?
     private let settingsSpacer = UIView()
     private let presentation = KeyboardPresentation()
     private var visible = false
 
+    override func loadView() {
+        let panel = HistoryInputView(frame: .zero, inputViewStyle: .keyboard)
+        panel.allowsSelfSizing = true
+        panel.fit(to: traitCollection)
+        view = panel
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
+        registerForTraitChanges([UITraitVerticalSizeClass.self]) { (controller: KeyboardViewController, _: UITraitCollection) in
+            (controller.view as? HistoryInputView)?.fit(to: controller.traitCollection)
+        }
         let history = KeyboardHistory(session: session, presentation: presentation) { [weak self] row in
             guard let self else { return }
             Task {
@@ -23,6 +52,8 @@ final class KeyboardViewController: UIInputViewController {
         let host = UIHostingController(rootView: history)
         addChild(host)
         host.view.backgroundColor = .clear
+        host.view.clipsToBounds = true
+        host.view.translatesAutoresizingMaskIntoConstraints = false
 
         let space = UIButton(type: .system)
         let erase = UIButton(type: .system)
@@ -39,26 +70,28 @@ final class KeyboardViewController: UIInputViewController {
         settingsSpacer.isHidden = true
         [globe, space, erase, returnKey, settingsSpacer].forEach { commands.addArrangedSubview($0) }
         commands.spacing = 6
-        let column = UIStackView(arrangedSubviews: [host.view, commands])
-        column.axis = .vertical
-        column.spacing = 6
-        column.translatesAutoresizingMaskIntoConstraints = false
+        commands.translatesAutoresizingMaskIntoConstraints = false
         view.backgroundColor = KeyboardPalette.tray
-        view.addSubview(column)
+        view.addSubview(host.view)
+        view.addSubview(commands)
+        let content = view.safeAreaLayoutGuide
+        let commandsHeight = commands.heightAnchor.constraint(equalToConstant: 45)
+        commandsHeight.isActive = true
+        self.commandsHeight = commandsHeight
         NSLayoutConstraint.activate([
-            column.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 6),
-            column.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -6),
-            column.topAnchor.constraint(equalTo: view.topAnchor),
-            column.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -5)
+            host.view.topAnchor.constraint(equalTo: view.topAnchor),
+            host.view.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 6),
+            host.view.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -6),
+            host.view.bottomAnchor.constraint(equalTo: commands.topAnchor, constant: -6),
+            commands.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
+            commands.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
+            commands.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -5)
         ])
         for (key, width) in [(globe, CGFloat(48)), (erase, 54), (returnKey, 84)] {
             let constraint = key.widthAnchor.constraint(equalToConstant: width)
             constraint.priority = .defaultHigh
             constraint.isActive = true
         }
-        let commandHeight = commands.heightAnchor.constraint(equalToConstant: 45)
-        commandHeight.priority = .defaultHigh
-        commandHeight.isActive = true
         host.didMove(toParent: self)
         NotificationCenter.default.addObserver(self, selector: #selector(hostBackground),
                                                name: .NSExtensionHostDidEnterBackground, object: nil)
@@ -149,7 +182,10 @@ final class KeyboardViewController: UIInputViewController {
         let hideGlobe = !needsInputModeSwitchKey
         if globe.isHidden != hideGlobe { globe.isHidden = hideGlobe }
         let hideCommands = settings && hideGlobe
-        if commands.isHidden != hideCommands { commands.isHidden = hideCommands }
+        if commands.isHidden != hideCommands {
+            commands.isHidden = hideCommands
+            commandsHeight?.constant = hideCommands ? 0 : 45
+        }
         session.start(fullAccess: hasFullAccess, captureEnabled: !settings)
     }
     @objc private func hostInactive() { session.active = false }

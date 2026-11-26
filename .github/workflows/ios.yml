@@ -128,7 +128,7 @@ jobs:
           fi
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$GITHUB_SHA"
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          适用于 iOS 26 及以上版本。键盘直接保存文本和图片，每条记录都是整行可点的圆角键帽。底部提供空格、换行或退格，顶部的垃圾桶可以删除记录，键盘高度跟随系统。
+          适用于 iOS 26 及以上版本。键盘直接保存文本和图片，每条记录都是整行可点的圆角键帽。底部提供空格、换行或退格，顶部的垃圾桶可以删除记录。键盘在切入时即确定布局高度。
 
           用全能签或没有 App Group 的个人签，选 `-local.ipa`，重签整个 IPA 并保留键盘扩展。安装后在系统键盘设置中添加 Clipboard 并打开「允许完全访问」。
 

@@ -24,7 +24,7 @@ struct KeyboardSetupView: View {
                         .buttonStyle(.bordered).controlSize(.large)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20).background(.background, in: RoundedRectangle(cornerRadius: 20))
+                    .padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
 
                     VStack(alignment: .leading, spacing: 15) {
                         Label("试用键盘", systemImage: "text.cursor").font(.title3.bold())
@@ -36,7 +36,7 @@ struct KeyboardSetupView: View {
                         .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("tryKeyboard")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20).background(.background, in: RoundedRectangle(cornerRadius: 20))
+                    .padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                 }
                 .frame(maxWidth: 580, alignment: .leading)
                 .padding(.horizontal, 18).padding(.vertical, 12)
