@@ -59,6 +59,12 @@ final class SessionTests: XCTestCase {
         try await eventually { session.loaded }
         XCTAssertTrue(session.rows.isEmpty)
         XCTAssertEqual(UIPasteboard.general.data(forPasteboardType: "public.png"), png)
+        session.active = false
+        UIPasteboard.general.string = "while inactive"
+        try await Task.sleep(for: .milliseconds(1250))
+        XCTAssertTrue(session.rows.isEmpty)
+        session.start(.app)
+        try await eventually { session.rows.first?.preview == "while inactive" }
     }
 
     func testKeyboardWithoutFullAccessOnlyInsertsExistingText() async throws {

@@ -26,7 +26,7 @@
 
 ## 构建与验证
 
-在安装 Xcode 26、XcodeGen 和 iOS 26 模拟器的 Mac 上运行：
+在 Mac 上安装 Xcode 26、XcodeGen 和 iOS 26 模拟器后，在仓库根目录构建并测试。
 
 ```sh
 xcodegen generate

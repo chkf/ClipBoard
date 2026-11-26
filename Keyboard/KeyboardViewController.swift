@@ -46,6 +46,8 @@ final class KeyboardViewController: UIInputViewController {
         host.didMove(toParent: self)
         NotificationCenter.default.addObserver(self, selector: #selector(hostBackground),
                                                 name: .NSExtensionHostDidEnterBackground, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(hostInactive),
+                                                name: .NSExtensionHostWillResignActive, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(hostActive),
                                                 name: .NSExtensionHostDidBecomeActive, object: nil)
     }
@@ -71,6 +73,7 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func hostActive() {
         if visible { session.start(.keyboard(fullAccess: hasFullAccess)) }
     }
+    @objc private func hostInactive() { session.active = false }
     @objc private func hostBackground() { session.stop() }
 }
 
