@@ -3,7 +3,7 @@ import UIKit
 
 enum KeyboardPalette {
     static let key = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.16) : .white }
-    static let disabledReturn = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.08) : UIColor(white: 0, alpha: 0.15) }
+    static let disabledReturn = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.40) : UIColor(white: 0, alpha: 0.15) }
     static let returnAccent = UIColor(red: 0, green: 122/255, blue: 1, alpha: 1)
     static let pressed = UIColor { $0.userInterfaceStyle == .dark ? .systemGray : .systemGray3 }
 }
@@ -53,7 +53,7 @@ struct HostReturnKey: Equatable {
         return accented ? KeyboardPalette.returnAccent : KeyboardPalette.key
     }
     var foreground: Color {
-        guard enabled else { return Color(uiColor: .tertiaryLabel) }
+        guard enabled else { return Color(uiColor: .label).opacity(0.10) }
         return accented ? .white : .primary
     }
     init(_ type: UIReturnKeyType = .default, enabled: Bool = true) {

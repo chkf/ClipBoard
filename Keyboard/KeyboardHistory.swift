@@ -204,12 +204,12 @@ struct KeyboardHistory: View {
                             label: { Label("删除", systemImage: "trash") }
                     }
                 }
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: row.id == session.rows.last?.id ? 0 : layout.rowGap, trailing: 0))
+                .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
                 .task { await session.nextPage(after: row) }
             }
         }
-        .listStyle(.plain).scrollContentBackground(.hidden)
+        .listStyle(.plain).listRowSpacing(layout.rowGap).scrollContentBackground(.hidden)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.vertical, 0, for: .scrollContent)
     }

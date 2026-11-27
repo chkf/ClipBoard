@@ -236,7 +236,7 @@ final class ClipboardUITests: XCTestCase {
         fixture.buttons["Finish measurement"].tap()
     }
 
-    func testKeyboardKeysManagementAndHistoryAcrossHosts() {
+    func testKeyboardKeysManagementAndHistoryAcrossHosts() throws {
         enableKeyboard()
         fixture.launch()
         copyInFixture("second")
@@ -266,12 +266,15 @@ final class ClipboardUITests: XCTestCase {
         let picture = historyKey("图片", in: fixture)
         XCTAssertTrue(waitFor(picture, seconds: 30), fixture.debugDescription)
         screenshot("ClipboardKeyboard", in: fixture)
+        let screen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
         let footer = fixture.buttons["keyboardSpace"].frame
         let commands = ["clearHistory", "openSearch", "keyboardBackspace"]
         for (record, id) in zip([picture, historyKey(text, in: fixture), short], commands) {
             let face = fixture.buttons[id].frame
+            let paintedRow = try XCTUnwrap(screen.verticalFace(at: CGPoint(x: record.frame.maxX - 14, y: face.midY)), id)
             XCTAssertEqual(face.minY, record.frame.minY, accuracy: 1.5, id)
-            XCTAssertEqual(face.maxY, record.frame.maxY, accuracy: 1.5, id)
+            XCTAssertEqual(face.minY, paintedRow.lowerBound, accuracy: 1.5, id)
+            XCTAssertEqual(face.maxY, paintedRow.upperBound, accuracy: 1.5, id)
             XCTAssertEqual(face.height, footer.height, accuracy: 1.5, id)
             XCTAssertLessThan(face.maxY, footer.minY, id)
             XCTAssertLessThanOrEqual(face.maxX, fixture.frame.maxX, id)
@@ -407,10 +410,9 @@ final class ClipboardUITests: XCTestCase {
         field.tap()
         let keyboard = fixture.keyboards.firstMatch
         XCTAssertTrue(keyboard.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch.waitForExistence(timeout: 8))
-        let native = try nativeReturn("Search", "搜索", in: keyboard)
-        let systemMidY = native.frame.midY
         screenshot("NativeEmptySearch", in: fixture)
         let systemScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+        let systemY = try XCTUnwrap(systemScreen.bottomRowSampleY(), "Native space bar")
 
         fixture.launchArguments = ["-EmptySearch"]
         fixture.launch()
@@ -424,17 +426,23 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertFalse(custom.isEnabled)
         screenshot("ClipboardEmptySearch", in: fixture)
         let customScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+        let customY = try XCTUnwrap(customScreen.bottomRowSampleY(), "Clipboard space bar")
         let ids = ["showNumbers", "showEmoji", "keyboardSpace", "keyboardReturn"]
         for (fraction, id) in zip([0.075, 0.19, 0.49, 0.87], ids) {
-            let stock = try XCTUnwrap(systemScreen.bottomKeycap(at: CGPoint(x: fixture.frame.width * fraction, y: systemMidY)), id)
+            let stock = try XCTUnwrap(systemScreen.bottomKeycap(at: CGPoint(x: fixture.frame.width * fraction, y: systemY)), id)
             let key = fixture.buttons[id].frame
-            let ours = try XCTUnwrap(customScreen.bottomKeycap(at: CGPoint(x: key.midX, y: key.midY)), id)
+            let ours = try XCTUnwrap(customScreen.bottomKeycap(at: CGPoint(x: key.midX, y: customY)), id)
             XCTAssertEqual(ours.minX, stock.minX, accuracy: 4, id)
             XCTAssertEqual(ours.maxX, stock.maxX, accuracy: 4, id)
             XCTAssertEqual(ours.minY, stock.minY, accuracy: 4, id)
             XCTAssertEqual(ours.maxY, stock.maxY, accuracy: 4, id)
-            assertColorsMatch(systemScreen.keycapColor(in: stock.insetBy(dx: 5, dy: 5)),
-                              customScreen.keycapColor(in: ours.insetBy(dx: 5, dy: 5)), id)
+            let systemColor = systemScreen.keycapColor(in: stock.insetBy(dx: 5, dy: 5))
+            let customColor = customScreen.keycapColor(in: ours.insetBy(dx: 5, dy: 5))
+            assertColorsMatch(systemColor, customColor, id)
+            if id == "keyboardReturn" {
+                assertColorsMatch(systemScreen.symbolColor(in: stock, background: systemColor),
+                                  customScreen.symbolColor(in: ours, background: customColor), "disabled search symbol")
+            }
             if id == "keyboardSpace" {
                 let stockGap = CGRect(x: stock.midX - 8, y: stock.minY - 7, width: 16, height: 4)
                 let ourGap = CGRect(x: ours.midX - 8, y: ours.minY - 7, width: 16, height: 4)
