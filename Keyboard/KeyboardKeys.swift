@@ -41,8 +41,6 @@ struct KeyboardLayout {
     }
 }
 
-enum KeyboardPage { case history, numbers, emoji, search }
-
 struct HostReturnKey: Equatable {
     var label: String
     var symbol: String?
@@ -77,11 +75,12 @@ struct HostReturnKey: Equatable {
 @MainActor final class KeyboardPresentation: ObservableObject {
     static let hapticsPreference = "KeyboardHapticsEnabled"
     @Published var settings = false
-    @Published var page: KeyboardPage = .history
+    @Published var categoryRequest: CategoryRequest?
     @Published var returnKey = HostReturnKey()
     @Published var heightOffset = 0
     @Published var needsGlobe = false
     @Published var showsInputModeName = false
+    @Published var appearanceID = UUID()
 }
 
 struct KeycapStyle: ButtonStyle {
@@ -131,6 +130,7 @@ struct SystemGlobe: UIViewRepresentable {
         button.backgroundColor = KeyboardPalette.key
         button.layer.cornerRadius = 8
         button.accessibilityLabel = "切换输入法"
+        button.accessibilityHint = "轻点切到下一个键盘，长按选择系统键盘或表情符号。"
         button.accessibilityIdentifier = "nextKeyboard"
         install(button)
         return button

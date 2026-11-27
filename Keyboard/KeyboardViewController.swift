@@ -23,6 +23,7 @@ final class KeyboardViewController: UIInputViewController {
     private var visible = false
     private var spaceNameTimeout: Task<Void, Never>?
     private var layoutWidth: CGFloat = 0
+    private var applyingCategory = false
 
     private var heightKey: String {
         traitCollection.verticalSizeClass == .compact ? "KeyboardHeight.landscape" : "KeyboardHeight.portrait"
@@ -61,7 +62,8 @@ final class KeyboardViewController: UIInputViewController {
             },
             insert: { [weak self] text in self?.textDocumentProxy.insertText(text); self?.updateTraits() },
             erase: { [weak self] in self?.textDocumentProxy.deleteBackward(); self?.updateTraits() },
-            selectedText: { [weak self] in self?.textDocumentProxy.selectedText },
+            moveCursor: { [weak self] offset in self?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) },
+            applyCategory: { [weak self] request in self?.applyCategory(request) },
             adjustHeight: { [weak self] delta in self?.adjustHeight(delta) },
             globe: { [weak self] button in
                 if let self { button.addTarget(self, action: #selector(self.handleInputModeList(from:with:)), for: .allTouchEvents) }
@@ -98,6 +100,22 @@ final class KeyboardViewController: UIInputViewController {
         center.addObserver(self, selector: #selector(hostBackground), name: .NSExtensionHostDidEnterBackground, object: nil)
         center.addObserver(self, selector: #selector(hostInactive), name: .NSExtensionHostWillResignActive, object: nil)
         center.addObserver(self, selector: #selector(hostActive), name: .NSExtensionHostDidBecomeActive, object: nil)
+    }
+
+    private func applyCategory(_ request: CategoryRequest) {
+        guard !applyingCategory, visible, hasFullAccess, let store = session.store,
+              CategoryRequest.decode(textDocumentProxy.selectedText) == request else { return }
+        let document = textDocumentProxy.documentIdentifier
+        applyingCategory = true
+        Task {
+            defer { applyingCategory = false }
+            do {
+                try await store.applyCategory(request)
+                guard visible, textDocumentProxy.documentIdentifier == document,
+                      CategoryRequest.decode(textDocumentProxy.selectedText) == request else { return }
+                textDocumentProxy.insertText(request.receipt)
+            } catch { session.report(error) }
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -184,24 +202,25 @@ final class KeyboardViewController: UIInputViewController {
         spaceNameTimeout = nil
         presentation.showsInputModeName = false
         session.active = false
+        session.stop()
+        presentation.appearanceID = UUID()
+        presentation.categoryRequest = nil
         super.viewWillDisappear(animated)
-    }
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        if !visible {
-            session.stop(); presentation.page = .history
-        }
     }
     @objc private func hostActive() {
         guard visible else { return }
         let proxy = textDocumentProxy
         let type: UITextContentType? = proxy.textContentType ?? nil
+        let commandField = type?.rawValue == CategoryRequest.context ||
+            (proxy.returnKeyType == .join && proxy.autocorrectionType == .no && proxy.selectedText?.hasPrefix(CategoryRequest.context + ":") == true)
+        let request = commandField ? CategoryRequest.decode(proxy.selectedText) : nil
+        if presentation.categoryRequest != request { presentation.categoryRequest = request }
         let settings = type?.rawValue == ClipboardInputMode.settingsContext ||
             (proxy.returnKeyType == .join && proxy.autocorrectionType == .no && proxy.selectedText == ClipboardInputMode.settingsContext)
         if presentation.settings != settings { presentation.settings = settings }
         updateTraits()
-        session.start(fullAccess: hasFullAccess, captureEnabled: !settings)
+        session.start(fullAccess: hasFullAccess, captureEnabled: !settings && !commandField)
     }
     @objc private func hostInactive() { session.active = false }
-    @objc private func hostBackground() { session.stop() }
+    @objc private func hostBackground() { session.stop(); presentation.appearanceID = UUID() }
 }

@@ -73,8 +73,15 @@ class Screen:
             l, t, r, b = rect
             cx, cy = (l + r) // 2, (t + b) // 2
             fill = tuple(map(median, zip(*self.region(l + 5, t + 5, r - l - 10, b - t - 10))))
-            results[name + " bounds"] = rect
-            results[name + " fill"] = fill
+            # The native 123 and emoji keys occupy one system-switch key in Clipboard.
+            if name == "123":
+                results["system switch leading bounds"] = (l, t, b)
+                results["system switch fill"] = fill
+            elif name == "Emoji":
+                results["system switch trailing bounds"] = (r, t, b)
+            else:
+                results[name + " bounds"] = rect
+                results[name + " fill"] = fill
             if name == "Space":
                 results["keyboard background"] = tuple(map(median, zip(*self.region(cx - 8, t - 7, 16, 4))))
             if name == "Search":

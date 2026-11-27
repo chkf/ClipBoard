@@ -9,7 +9,10 @@ final class ClipboardSession: ObservableObject {
     @Published private(set) var copied = 0
     @Published private(set) var message: String?
     @Published private(set) var fullAccess = false
-    @Published private(set) var query = ""
+    @Published private(set) var categories: [ClipCategory] = [.ordinary]
+    @Published private(set) var category = ClipCategory.ordinary.id
+    @Published private(set) var undoAvailable = false
+    @Published private(set) var ordinaryCount = 0
     private(set) var store: HistoryStore?
     private let keyboardAccess: (() -> Bool)?
     private let open: (Bool) async throws -> HistoryStore
@@ -28,6 +31,7 @@ final class ClipboardSession: ObservableObject {
     private var paging = false
     private var lastPrune = Date.distantPast
     private var captureEnabled = true
+    private var pendingEdit: Task<Void, Never>?
     var active = true
 
     init(keyboardAccess: (() -> Bool)? = nil,
@@ -81,7 +85,13 @@ final class ClipboardSession: ObservableObject {
         failedAttempts = 0
         verifiedStamp = nil
         revision = -1
-        query = ""
+        pendingEdit?.cancel()
+        pendingEdit = nil
+        if let store { Task { try? await store.discardUndo() } }
+        category = ClipCategory.ordinary.id
+        categories = [.ordinary]
+        undoAvailable = false
+        ordinaryCount = 0
         listGeneration = UUID()
         lastPrune = .distantPast
         store = nil
@@ -169,8 +179,16 @@ final class ClipboardSession: ObservableObject {
         let state = try await store.state()
         guard generation == cycle, list == listGeneration, state.revision > revision else { return state }
         let limit = max(60, rows.count)
-        let page = try await store.page(limit: limit, matching: query)
+        let groups = try await store.categories()
+        let selected = groups.contains(where: { $0.id == category }) ? category : ClipCategory.ordinary.id
+        let page = try await store.page(limit: limit, category: selected)
+        let depth = try await store.undoDepth()
+        let count = try await store.ordinaryUnpinnedCount()
         guard generation == cycle, list == listGeneration, state.revision > revision else { return state }
+        categories = groups
+        category = selected
+        undoAvailable = depth > 0
+        ordinaryCount = count
         settings = state.settings
         rows = page
         pageEnd = page.count < limit
@@ -179,11 +197,10 @@ final class ClipboardSession: ObservableObject {
         return state
     }
 
-    func filter(_ text: String) {
-        let term = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard term != query else { return }
+    func selectCategory(_ id: String) {
+        guard category != id else { return }
         listGeneration = UUID()
-        query = term
+        category = id
         rows = []
         paging = false
         pageEnd = false
@@ -204,7 +221,7 @@ final class ClipboardSession: ObservableObject {
         paging = true
         defer { if generation == cycle, list == listGeneration { paging = false } }
         do {
-            let page = try await store.page(after: row, matching: query)
+            let page = try await store.page(after: row, category: category)
             guard generation == cycle, list == listGeneration, revision == startingRevision, rows.last?.id == row.id else { return }
             rows.append(contentsOf: page)
             pageEnd = page.count < 60
@@ -249,5 +266,26 @@ final class ClipboardSession: ObservableObject {
             try await refresh(store, cycle: cycle)
         } catch { if generation == cycle { message = error.localizedDescription } }
     }
+
+    // Enqueue taps in delivery order (including Undo). A hidden keyboard abandons queued work.
+    func enqueue(_ change: @escaping (HistoryStore) async throws -> Void) {
+        guard active, fullAccess, keyboardAccess?() != false, let store else { return }
+        let cycle = generation
+        let previous = pendingEdit
+        pendingEdit = Task {
+            await previous?.value
+            guard !Task.isCancelled, generation == cycle, active, keyboardAccess?() != false else { return }
+            do {
+                try await change(store)
+                guard generation == cycle else { return }
+                message = nil
+                try await refresh(store, cycle: cycle)
+            } catch { if generation == cycle { message = error.localizedDescription } }
+        }
+    }
+
+    func perform(_ action: HistoryAction) { enqueue { try await $0.organize(action) } }
+    func undo() { enqueue { try await $0.undoOrganization() } }
+    func report(_ error: Error) { message = error.localizedDescription }
 
 }

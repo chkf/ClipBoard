@@ -37,6 +37,15 @@ struct KeyboardSetupView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                    NavigationLink {
+                        CategoryManagement()
+                    } label: {
+                        HStack {
+                            Label("分类管理", systemImage: "folder").font(.headline)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.subheadline).foregroundStyle(.secondary)
+                        }.padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                    }.buttonStyle(.plain).accessibilityIdentifier("manageCategories")
                 }
                 .frame(maxWidth: 580, alignment: .leading)
                 .padding(.horizontal, 18).padding(.vertical, 12)
@@ -81,19 +90,25 @@ struct KeyboardSetupView: View {
     }
 }
 
-private struct TrialInput: UIViewControllerRepresentable {
+struct TrialInput: UIViewControllerRepresentable {
     let settings: Bool
+    var request: CategoryRequest? = nil
+    var acknowledged: (() -> Void)? = nil
     func makeUIViewController(context: Context) -> TrialController {
         let controller = TrialController()
         controller.settings = settings
+        controller.request = request
+        controller.acknowledged = acknowledged
         return controller
     }
     func updateUIViewController(_ controller: TrialController, context: Context) {}
 }
 
-private final class TrialController: UIViewController {
+final class TrialController: UIViewController, UITextViewDelegate {
     private let editor = TrialTextView()
     var settings = false
+    var request: CategoryRequest?
+    var acknowledged: (() -> Void)?
     override func loadView() {
         editor.backgroundColor = .clear
         editor.font = .preferredFont(forTextStyle: .body)
@@ -101,9 +116,10 @@ private final class TrialController: UIViewController {
         editor.textContainerInset = UIEdgeInsets(top: 14, left: 10, bottom: 14, right: 10)
         editor.accessibilityIdentifier = "trialInput"
         editor.accessibilityLabel = "试用输入框"
-        if settings {
-            editor.textContentType = UITextContentType(rawValue: ClipboardInputMode.settingsContext)
-            editor.text = ClipboardInputMode.settingsContext
+        if settings || request != nil {
+            editor.textContentType = UITextContentType(rawValue: request == nil ? ClipboardInputMode.settingsContext : CategoryRequest.context)
+            editor.text = request?.input ?? ClipboardInputMode.settingsContext
+            editor.delegate = self
             editor.textColor = .clear
             editor.tintColor = .clear
             editor.autocorrectionType = .no
@@ -114,8 +130,14 @@ private final class TrialController: UIViewController {
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if settings || request != nil { editor.selectedTextRange = editor.textRange(from: editor.beginningOfDocument, to: editor.endOfDocument) }
         editor.becomeFirstResponder()
-        if settings { editor.selectedTextRange = editor.textRange(from: editor.beginningOfDocument, to: editor.endOfDocument) }
+        if settings || request != nil { editor.selectedTextRange = editor.textRange(from: editor.beginningOfDocument, to: editor.endOfDocument) }
+    }
+    func textViewDidChange(_ textView: UITextView) {
+        guard let request, textView.text == request.receipt else { return }
+        self.request = nil
+        acknowledged?()
     }
 }
 

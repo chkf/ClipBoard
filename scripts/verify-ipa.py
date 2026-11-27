@@ -24,7 +24,7 @@ assert ext["CFBundleIdentifier"] == host["CFBundleIdentifier"] + ".keyboard"
 assert ext["CFBundleVersion"] == host["CFBundleVersion"]
 assert ext["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.keyboard-service"
 assert ext["NSExtension"]["NSExtensionAttributes"]["RequestsOpenAccess"] is True
-assert ext["NSExtension"]["NSExtensionAttributes"]["PrimaryLanguage"] == "zh-Hans-x-cliphist"
+assert ext["NSExtension"]["NSExtensionAttributes"]["PrimaryLanguage"] == "und-x-cliphist"
 assert ext["NSExtension"]["NSExtensionPrincipalClass"].endswith(".KeyboardViewController")
 group = host["ClipboardAppGroup"]
 assert group.startswith("group.")

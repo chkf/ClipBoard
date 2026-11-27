@@ -7,26 +7,38 @@ struct KeyboardHistory: View {
     let select: (ClipRow) -> Void
     let insert: (String) -> Void
     let erase: () -> Void
-    let selectedText: () -> String?
+    let moveCursor: (Int) -> Void
+    let applyCategory: (CategoryRequest) -> Void
     let adjustHeight: (Int?) -> Void
     let globe: (UIButton) -> Void
-    @State private var confirmClear = false
-    @State private var draft = ""
-    @State private var emojiGroup = 0
-    @State private var moreNumbers = false
-    @State private var searchDigits = false
-    @State private var copiedImage = false
+
+    private enum Panel: Equatable { case history, categories, file(ClipRow), clear }
+    @State private var panel: Panel = .history
+    @AppStorage("ClipboardRecentFiling") private var recentFiling = Data()
     @AppStorage(KeyboardPresentation.hapticsPreference) private var hapticsEnabled = true
     @Environment(\.keyboardFeedback) private var feedback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private static let inputModeName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Clipboard"
 
     var body: some View {
         GeometryReader { bounds in
             let layout = KeyboardLayout(size: bounds.size)
             let rail = min(56, max(43, bounds.size.width * 0.122))
             VStack(spacing: 0) {
-                if presentation.settings {
+                if let request = presentation.categoryRequest {
+                    VStack(spacing: 8) {
+                        Text(request.title).font(.headline).lineLimit(2)
+                        if request.operation == .remove { note("其中的记录将移回「普通」。") }
+                        if let message = session.message { note(message) }
+                        if !session.fullAccess { note("请在键盘设置中允许完全访问，然后重试。") }
+                        Button("应用分类更改") { feedback(); applyCategory(request) }
+                            .buttonStyle(.borderedProminent).disabled(!session.loaded || !session.fullAccess)
+                            .accessibilityIdentifier("applyCategoryChange")
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if presentation.needsGlobe {
+                        SystemGlobe(install: globe).frame(width: rail, height: layout.keyHeight)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else if presentation.settings {
                     settings
                     if presentation.needsGlobe {
                         SystemGlobe(install: globe).frame(width: rail, height: layout.keyHeight)
@@ -35,156 +47,161 @@ struct KeyboardHistory: View {
                 } else {
                     header.frame(height: layout.headerHeight)
                     HStack(alignment: .top, spacing: layout.columnGap) {
-                        panel(layout).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        content(layout).frame(maxWidth: .infinity, maxHeight: .infinity)
                         commands(layout).frame(width: rail)
                     }.frame(height: layout.rowsHeight)
                     footer(layout).frame(height: layout.keyHeight).padding(.top, layout.rowGap)
                 }
-            }
-            .padding(.horizontal, layout.sideInset).padding(.bottom, layout.bottomInset)
+            }.padding(.horizontal, layout.sideInset).padding(.bottom, layout.bottomInset)
         }
-        .task(id: session.copied) {
-            guard session.copied > 0 else { return }
-            copiedImage = true
-            try? await Task.sleep(for: .seconds(1.3))
-            if !Task.isCancelled { copiedImage = false }
+        .onChange(of: presentation.appearanceID) { _, _ in panel = .history }
+        .onChange(of: session.fullAccess) { _, access in if !access { panel = .history } }
+        .onChange(of: session.message) { _, message in
+            if let message { UIAccessibility.post(notification: .announcement, argument: message) }
         }
-        .onChange(of: presentation.page) { _, _ in confirmClear = false }
-        .onChange(of: session.fullAccess) { _, access in if !access { confirmClear = false } }
     }
 
     @ViewBuilder private var header: some View {
-        switch presentation.page {
-        case .history:
-            HStack(spacing: 8) {
-                if confirmClear {
-                    Text("清空未置顶记录？").fontWeight(.semibold)
-                    Spacer(minLength: 0)
-                    Button("取消") { confirmClear = false }.accessibilityIdentifier("cancelClear")
-                    Button("清空", role: .destructive) {
-                        Task { await session.edit { try await $0.clearUnpinned() }; confirmClear = false }
-                    }.accessibilityIdentifier("confirmClear")
-                } else {
-                    if let message = session.message { note(message) }
-                    else if !session.fullAccess { note("打开「允许完全访问」可记录新内容。") }
-                    else {
-                        Text(copiedImage ? "图片已复制" : session.query.isEmpty ? "剪贴板" : "搜索 · " + session.query)
-                            .fontWeight(.semibold).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    if !session.query.isEmpty {
-                        Button("显示全部") { showHistory() }
-                    }
+        if case .file(let row) = panel {
+            ZStack {
+                VStack(spacing: 0) {
+                    Text("归类到").font(.subheadline.weight(.medium))
+                    Text(verbatim: row.isImage ? "图片" : row.preview).lineLimit(1).font(.caption2).foregroundStyle(.secondary)
+                }.padding(.horizontal, 54)
+                HStack { Button("取消") { panel = .history }; Spacer() }
+            }
+        } else {
+            HStack(spacing: 0) {
+                ScrollViewReader { scroll in
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 3) {
+                            ForEach(session.categories) { category in
+                                let current = session.category == category.id
+                                Button { feedback(); browse(category) } label: {
+                                    Text(verbatim: category.name).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                                        .font(.subheadline.weight(current ? .semibold : .regular))
+                                        .padding(.horizontal, 8).frame(minWidth: 44, maxHeight: .infinity)
+                                        .contentShape(Rectangle())
+                                }.buttonStyle(.plain).foregroundStyle(current ? Color.primary : Color.secondary)
+                                    .accessibilityAddTraits(current ? .isSelected : [])
+                                    .accessibilityIdentifier("tab-" + (category.id.isEmpty ? "ordinary" : category.id))
+                                    .id(category.id)
+                            }
+                        }
+                    }.scrollIndicators(.hidden)
+                        .onChange(of: session.category) { _, value in scroll.scrollTo(value, anchor: .center) }
                 }
-            }.font(.subheadline).padding(.horizontal, 4)
-        case .search:
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                Text(draft.isEmpty ? "文字或拼音" : draft).lineLimit(1)
-                    .foregroundStyle(draft.isEmpty ? .secondary : .primary)
-                Spacer(minLength: 0)
-                Button("粘贴") { if let value = UIPasteboard.general.string { draft = value } }
-                    .disabled(!session.fullAccess)
-                Button(searchDigits ? "ABC" : "123") { searchDigits.toggle() }
-            }.font(.subheadline).padding(.horizontal, 4)
-        case .emoji:
-            Picker("表情分类", selection: $emojiGroup) {
-                ForEach(Array(["表情", "手势", "生活", "符号"].enumerated()), id: \.offset) { index, name in
-                    Text(verbatim: name).tag(index)
-                }
-            }.pickerStyle(.segmented)
-        case .numbers:
-            Color.clear.accessibilityHidden(true)
+                Button { feedback(); panel = panel == .categories ? .history : .categories } label: {
+                    Image(systemName: panel == .categories ? "chevron.up" : "chevron.down")
+                        .font(.body.weight(.medium)).frame(width: 44).frame(maxHeight: .infinity).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .accessibilityLabel(panel == .categories ? "收起分类" : "展开全部分类").accessibilityIdentifier("expandCategories")
+            }
         }
+    }
+
+    private func browse(_ category: ClipCategory) {
+        session.selectCategory(category.id)
+        panel = .history
+    }
+
+    @ViewBuilder private func content(_ layout: KeyboardLayout) -> some View {
+        switch panel {
+        case .history:
+            if session.rows.isEmpty {
+                if let message = session.message { note(message) }
+                else if !session.fullAccess { note("打开「允许完全访问」可记录新内容。") }
+                else if session.loaded { note("暂无历史记录") }
+            } else { history(layout) }
+        case .categories: categoryList(nil)
+        case .file(let row): categoryList(row)
+        case .clear:
+            VStack(spacing: 6) {
+                Text("清空「普通」里的 \(session.ordinaryCount) 条未置顶记录？")
+                    .font(.subheadline.weight(.medium)).multilineTextAlignment(.center)
+                HStack(spacing: 18) {
+                    Button("取消") { panel = .history }.foregroundStyle(.primary).accessibilityIdentifier("cancelClear")
+                    Button("清空") { feedback(); session.perform(.clearOrdinary); panel = .history }
+                        .foregroundStyle(Color(uiColor: .systemBlue)).accessibilityIdentifier("confirmClear")
+                }.buttonStyle(.plain).font(.body.weight(.medium)).controlSize(.large)
+            }
+        }
+    }
+
+    private func categoryList(_ row: ClipRow?) -> some View {
+        let recentIDs = (try? JSONDecoder().decode([String].self, from: recentFiling)) ?? []
+        let recent = row == nil ? [] : recentIDs.compactMap { id in session.categories.first { $0.id == id && id != session.category } }
+        let others = session.categories.filter { group in !recent.contains(group) }
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                if !recent.isEmpty {
+                    Text("最近使用").font(.caption).foregroundStyle(.secondary)
+                    folderGrid(recent, filing: row)
+                }
+                folderGrid(others, filing: row)
+            }
+        }.accessibilityIdentifier("categoryList")
+    }
+
+    private func folderGrid(_ categories: [ClipCategory], filing row: ClipRow?) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 85), spacing: 4)], alignment: .leading, spacing: 4) {
+            ForEach(categories) { category in
+                Button {
+                    feedback()
+                    if let row {
+                        session.perform(.move(row.id, to: category.id))
+                        var recent = (try? JSONDecoder().decode([String].self, from: recentFiling)) ?? []
+                        recent.removeAll { $0 == category.id }; recent.insert(category.id, at: 0)
+                        if let data = try? JSONEncoder().encode(Array(recent.prefix(3))) { recentFiling = data }
+                        panel = .history
+                    } else { browse(category) }
+                } label: {
+                    Text(verbatim: category.name).font(.subheadline).multilineTextAlignment(.leading)
+                        .padding(.horizontal, 6).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(KeycapStyle()).disabled(row != nil && category.id == session.category)
+                    .accessibilityIdentifier("folder-" + (category.id.isEmpty ? "ordinary" : category.id))
+            }
+        }
+    }
+
+    private func requestClear() {
+        if session.fullAccess && session.ordinaryCount > 0 { panel = .clear }
     }
 
     private func commands(_ layout: KeyboardLayout) -> some View {
         VStack(spacing: layout.rowGap) {
-            if presentation.page == .history {
-                KeyboardKey(label: "清空历史", id: "clearHistory", symbol: "trash", foreground: Color(uiColor: .systemBlue)) {
-                    confirmClear = true
-                }.disabled(!session.fullAccess).frame(height: layout.keyHeight)
-                KeyboardKey(label: "搜索历史", id: "openSearch", symbol: "magnifyingglass", action: openSearch)
-                    .frame(height: layout.keyHeight)
-            } else {
-                switch presentation.page {
-                case .search:
-                    KeyboardKey(label: "返回剪贴板", id: "returnToHistory", symbol: "list.clipboard", action: showHistory)
-                        .frame(height: layout.keyHeight)
-                case .numbers:
-                    KeyboardKey(label: moreNumbers ? "常用数字" : "更多符号", id: "moreNumbers",
-                                title: moreNumbers ? "123" : "#+=") { moreNumbers.toggle() }.frame(height: layout.keyHeight)
-                default:
-                    KeyboardKey(label: "搜索历史", id: "openSearch", symbol: "magnifyingglass", action: openSearch)
-                        .frame(height: layout.keyHeight)
-                }
-                Color.clear.frame(height: layout.keyHeight).accessibilityHidden(true)
-            }
-            KeyboardKey(label: "退格", id: "keyboardBackspace", symbol: "delete.left", fontSize: 20, action: backspace)
-                .frame(height: layout.keyHeight)
+            KeyboardKey(label: "清空普通记录", id: "clearHistory", symbol: "trash", action: requestClear)
+                .disabled(!session.fullAccess || session.ordinaryCount == 0).frame(height: layout.keyHeight)
+            KeyboardKey(label: "撤销", id: "undoHistory", symbol: "arrow.uturn.backward",
+                        foreground: session.undoAvailable ? .primary : .secondary) { session.undo(); panel = .history }
+                .disabled(!session.fullAccess || !session.undoAvailable || panel == .clear).frame(height: layout.keyHeight)
+            KeyboardHoldKey("退格", id: "keyboardBackspace", symbol: "delete.left", holdLabel: "清空普通记录",
+                            tap: erase, hold: requestClear).frame(height: layout.keyHeight)
         }
     }
 
     private func footer(_ layout: KeyboardLayout) -> some View {
         HStack(spacing: layout.columnGap) {
-            if presentation.needsGlobe {
-                SystemGlobe(install: globe).frame(width: layout.smallKey)
-            }
-            let numbers = presentation.page == .numbers
-            KeyboardKey(label: numbers ? "返回剪贴板" : "数字和符号", id: numbers ? "numbersBack" : "showNumbers",
-                        symbol: numbers ? "list.clipboard" : nil, title: "123", fontSize: 17) {
-                if numbers { showHistory() } else { presentation.page = .numbers; moreNumbers = false }
-            }.frame(width: layout.smallKey)
-            let emoji = presentation.page == .emoji
-            KeyboardKey(label: emoji ? "返回剪贴板" : "表情", id: emoji ? "emojiBack" : "showEmoji",
-                        symbol: emoji ? "list.clipboard" : "face.smiling", fontSize: 20) {
-                if emoji { showHistory() } else { presentation.page = .emoji }
-            }.frame(width: layout.smallKey)
-            KeyboardKey(label: "空格", id: "keyboardSpace", title: "") { type(" ") }
+            SystemGlobe(install: globe).frame(width: 2 * layout.smallKey + layout.columnGap)
+            KeyboardHoldKey("空格", id: "keyboardSpace", holdLabel: "移动光标", tap: { insert(" ") }, hold: {}, moveCursor: moveCursor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay {
-                    Text(verbatim: Self.inputModeName)
+                    Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Clipboard")
                         .font(.system(size: 16)).lineLimit(1).minimumScaleFactor(0.7)
-                        .foregroundStyle(.secondary).padding(.horizontal, 4)
-                        .opacity(presentation.showsInputModeName ? 1 : 0)
-                        .animation(reduceMotion || presentation.showsInputModeName ? nil : .easeOut(duration: 0.22),
-                                   value: presentation.showsInputModeName)
+                        .foregroundStyle(Color(uiColor: .label)).opacity(presentation.showsInputModeName ? 1 : 0)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: presentation.showsInputModeName)
                         .allowsHitTesting(false).accessibilityHidden(true)
                 }
-            let key = presentation.page == .search ? HostReturnKey(.search) : presentation.returnKey
-            KeyboardKey(label: key.label, id: "keyboardReturn", symbol: key.symbol,
-                        fill: key.fill, foreground: key.foreground, fontSize: key.symbol == nil ? 17 : 19) {
-                if presentation.page == .search { session.filter(draft); presentation.page = .history }
-                else { insert("\n") }
-            }.disabled(!key.enabled).frame(width: layout.returnWidth)
-        }
-    }
-
-    @ViewBuilder private func panel(_ layout: KeyboardLayout) -> some View {
-        switch presentation.page {
-        case .history:
-            if session.loaded && session.rows.isEmpty {
-                Text(session.query.isEmpty ? "暂无历史记录" : "没有匹配的记录")
-                    .foregroundStyle(.secondary).font(.subheadline)
-            } else {
-                history(layout)
-            }
-        case .numbers:
-            keyRows(moreNumbers ? ["[]{}#%^*+=", "_\\|~<>€£¥", ".,?!:;\"'"] : ["1234567890", "-/:;()¥&@\"", ".,?!'。？！"], layout)
-        case .search:
-            keyRows(searchDigits ? ["1234567890","-/:;()&@",".,?!_#"] : ["qwertyuiop","asdfghjkl","zxcvbnm"], layout)
-        case .emoji:
-            let icons = ["😀😃😄😁😆🥹😂🤣😊😇🙂🙃😉😍🥰😘😎🥳🤔😅🥲😭😴🤯",
-                         "👍👎👏🙌🫶🤝🙏✌️🤞🤟👌🤌👋🤙💪✊👊🤛🫰🤷",
-                         "🎉🎂🎁🎈☕️🍵🍎🍕🍜🌞🌙⭐️🌈🌻🐶🐱🚗✈️🏠📱",
-                         "❤️🧡💛💚💙💜🖤🤍💔💯✅❌❓❗️✨🔥💡📌💬🎵"]
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 32), spacing: 4)], spacing: layout.rowGap) {
-                    ForEach(Array(icons[emojiGroup]), id: \.self) { char in
-                        KeyboardKey(label: String(char), id: "emoji-" + String(char), fontSize: 23) { type(String(char)) }
-                            .frame(height: layout.keyHeight)
+                .overlay(alignment: .bottomTrailing) {
+                    if !presentation.showsInputModeName {
+                        Text("剪").font(.system(size: 11)).foregroundStyle(.secondary).padding(.trailing, 5).padding(.bottom, 2)
+                            .allowsHitTesting(false).accessibilityHidden(true)
                     }
                 }
-            }
+            let key = presentation.returnKey
+            KeyboardKey(label: key.label, id: "keyboardReturn", symbol: key.symbol,
+                        fill: key.fill, foreground: key.foreground, fontSize: key.symbol == nil ? 17 : 19) { insert("\n") }
+                .disabled(!key.enabled).frame(width: layout.returnWidth)
         }
     }
 
@@ -203,45 +220,29 @@ struct KeyboardHistory: View {
                 .accessibilityLabel(Text(verbatim: row.isImage ? "图片" : row.preview))
                 .accessibilityValue(row.isPinned ? "已置顶" : "")
                 .accessibilityIdentifier("historyKey")
-                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     if session.fullAccess {
-                        Button { togglePin(row) } label: { Label(row.isPinned ? "取消置顶" : "置顶", systemImage: row.isPinned ? "pin.slash" : "pin.fill") }
+                        Button { feedback(); session.perform(.pin(row.id,!row.isPinned)) }
+                            label: { Label(row.isPinned ? "取消置顶" : "置顶", systemImage: row.isPinned ? "pin.slash" : "pin.fill") }
                             .tint(.orange)
                     }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if session.fullAccess {
-                        Button(role: .destructive) { Task { await session.edit { try await $0.delete(row.id) } } }
+                        Button(role: .destructive) { feedback(); session.perform(.remove(row.id)) }
                             label: { Label("删除", systemImage: "trash") }
+                        Button { feedback(); panel = .file(row) } label: { Label("归类", systemImage: "folder") }.tint(.blue)
                     }
                 }
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
                 .task { await session.nextPage(after: row) }
             }
-        }
-        .listStyle(.plain).listRowSpacing(layout.rowGap).scrollContentBackground(.hidden)
-        .environment(\.defaultMinListRowHeight, 0)
-        .contentMargins(.vertical, 0, for: .scrollContent)
+        }.listStyle(.plain).listRowSpacing(layout.rowGap).scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 0).environment(\.layoutDirection, .leftToRight)
+            .contentMargins(.vertical, 0, for: .scrollContent)
     }
 
-    private func keyRows(_ rows: [String], _ layout: KeyboardLayout) -> some View {
-        VStack(spacing: layout.rowGap) {
-            ForEach(rows, id: \.self) { row in
-                HStack(spacing: 3) {
-                    ForEach(Array(row), id: \.self) { char in
-                        KeyboardKey(label: String(char), id: "key-" + String(char), fontSize: 20) { type(String(char)) }
-                    }
-                }.frame(height: layout.keyHeight)
-            }
-        }.frame(maxHeight: .infinity, alignment: .top)
-    }
-    private func togglePin(_ row: ClipRow) { Task { await session.edit { try await $0.pin(row.id, enabled: !row.isPinned) } } }
-    private func showHistory() { session.filter(""); presentation.page = .history }
-    private func openSearch() { draft = selectedText() ?? session.query; searchDigits = false; presentation.page = .search }
-    private func type(_ text: String) { if presentation.page == .search { draft += text } else { insert(text) } }
-    private func backspace() { if presentation.page == .search { if !draft.isEmpty { draft.removeLast() } } else { erase() } }
-    private func note(_ text: String) -> some View { Text(text).font(.caption).foregroundStyle(.secondary) }
+    private func note(_ text: String) -> some View { Text(text).font(.subheadline).foregroundStyle(.secondary) }
 
     private var settings: some View {
         ScrollView {

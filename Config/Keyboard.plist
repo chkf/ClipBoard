@@ -15,7 +15,7 @@
     <key>NSExtensionAttributes</key><dict>
       <key>IsASCIICapable</key><false/>
       <key>PrefersRightToLeft</key><false/>
-      <key>PrimaryLanguage</key><string>zh-Hans-x-cliphist</string>
+      <key>PrimaryLanguage</key><string>und-x-cliphist</string>
       <key>RequestsOpenAccess</key><true/>
     </dict>
     <key>NSExtensionPointIdentifier</key><string>com.apple.keyboard-service</string>

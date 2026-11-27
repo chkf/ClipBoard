@@ -72,8 +72,10 @@ struct HistoryState {
 }
 
 actor HistoryStore {
-    private let db: Database
+    let db: Database
     private let supportsPins: Bool
+    let supportsCategories: Bool
+    let writable: Bool
 
     static func shared(readOnly: Bool = false) async throws -> HistoryStore {
         do {
@@ -98,11 +100,14 @@ actor HistoryStore {
         }
         let url = directory.appendingPathComponent("History.sqlite3")
         db = try Database(url: url, readOnly: readOnly)
+        writable = !readOnly
         if readOnly {
             supportsPins = try !db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pins'") { $0.integer(0) }.isEmpty
+            supportsCategories = try !db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='categories'") { $0.integer(0) }.isEmpty
             return
         }
         supportsPins = true
+        supportsCategories = true
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path)
         let database = db
         try database.transaction {
@@ -125,7 +130,17 @@ actor HistoryStore {
                     revision INTEGER NOT NULL DEFAULT 0, boot REAL, counter INTEGER, last_key TEXT)
                 """)
             try database.execute("INSERT OR IGNORE INTO state(id) VALUES(1)")
+            let firstCategories = try database.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='categories'") { $0.integer(0) }.isEmpty
+            try database.execute("CREATE TABLE IF NOT EXISTS categories(id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE)")
+            if firstCategories { try database.execute("INSERT INTO categories(id,name) VALUES('work','工作'),('frequent','常用')") }
+            try database.execute("CREATE TABLE IF NOT EXISTS filing(id TEXT PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE, category TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE)")
+            try database.execute("CREATE INDEX IF NOT EXISTS filing_category ON filing(category,id)")
         }
+        try database.execute("""
+            CREATE TEMP TABLE undo_rows(step INTEGER, kind TEXT NOT NULL, id TEXT NOT NULL, category TEXT, pinned REAL,
+                content_key TEXT, preview TEXT, is_image INTEGER, created REAL, updated REAL, uti TEXT, body BLOB, thumb BLOB,
+                PRIMARY KEY(step,id)) WITHOUT ROWID
+            """)
     }
 
     func state() throws -> HistoryState {
@@ -139,12 +154,18 @@ actor HistoryStore {
         return state
     }
 
-    func page(after cursor: ClipRow? = nil, limit: Int = 60, matching query: String = "") throws -> [ClipRow] {
+    func page(after cursor: ClipRow? = nil, limit: Int = 60, matching query: String = "", category: String? = nil) throws -> [ClipRow] {
         let rank = supportsPins ? "COALESCE(p.pinned,0)" : "0.0"
         var sql = "SELECT c.id,c.preview,c.is_image,c.updated," + rank + " FROM clips c "
         if supportsPins { sql += "LEFT JOIN pins p ON p.id=c.id " }
         var conditions: [String] = []
         var values: [SQLValue] = []
+        if let category {
+            if supportsCategories {
+                if category == ClipCategory.ordinary.id { conditions.append("NOT EXISTS(SELECT 1 FROM filing f WHERE f.id=c.id)") }
+                else { conditions.append("c.id IN (SELECT id FROM filing WHERE category=?)"); values.append(.text(category)) }
+            } else if category != ClipCategory.ordinary.id { return [] }
+        }
         if !query.isEmpty {
             sql += "JOIN bodies b ON b.id=c.id "
             conditions.append("(CASE WHEN c.is_image=1 THEN instr('图片 image',lower(?))>0 ELSE instr(lower(CAST(b.body AS TEXT)),lower(?))>0 OR clipboard_pinyin(c.preview,?) END)")
@@ -220,7 +241,7 @@ actor HistoryStore {
                        [.real(stamp.boot), .integer(stamp.count), key.map(SQLValue.text) ?? .null])
     }
 
-    private func bumpRevision() throws {
+    func bumpRevision() throws {
         try db.execute("UPDATE state SET revision=revision+1 WHERE id=1")
     }
 
@@ -245,13 +266,13 @@ actor HistoryStore {
 
     func clearUnpinned() throws {
         try db.transaction {
-            if try db.execute("DELETE FROM clips WHERE id NOT IN (SELECT id FROM pins)") > 0 { try bumpRevision() }
+            if try db.execute("DELETE FROM clips WHERE id NOT IN (SELECT id FROM pins) AND id NOT IN (SELECT id FROM filing)") > 0 { try bumpRevision() }
         }
     }
 
     private func expire(days: Int, now: Date) throws {
         let cutoff = now.timeIntervalSince1970 - Double(days) * 86_400
-        if try db.execute("DELETE FROM clips WHERE updated<=? AND id NOT IN (SELECT id FROM pins)", [.real(cutoff)]) > 0 { try bumpRevision() }
+        if try db.execute("DELETE FROM clips WHERE updated<=? AND id NOT IN (SELECT id FROM pins) AND id NOT IN (SELECT id FROM filing)", [.real(cutoff)]) > 0 { try bumpRevision() }
     }
 
     func prune(now: Date = Date()) throws {
