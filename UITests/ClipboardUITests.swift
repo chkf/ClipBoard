@@ -479,22 +479,31 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(space.waitForNonExistence(timeout: 8), fixture.debugDescription)
         let native = fixture.keyboards.firstMatch
         XCTAssertTrue(native.waitForExistence(timeout: 8), fixture.debugDescription)
+        // A fresh iOS installation overlays the keyboard with Apple's QuickPath introduction.
+        let introduction = fixture.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Speed up your typing by sliding")).firstMatch
+        if introduction.waitForExistence(timeout: 4) {
+            fixture.buttons["Continue"].tap()
+            XCTAssertTrue(introduction.waitForNonExistence(timeout: 8), fixture.debugDescription)
+        }
         if native.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch.exists {
             let numbers = native.descendants(matching: .any).matching(NSPredicate(
                 format: "label IN[c] %@ OR identifier IN[c] %@", ["more","numbers","123","数字"], ["more","123"])).firstMatch
             XCTAssertTrue(numbers.exists, native.debugDescription)
             let one = native.keys["1"]
-            for attempt in 0..<2 where !one.exists {
-                guard numbers.exists else { break }
-                numbers.tap()
-                if one.waitForExistence(timeout: 5) { break }
-                if attempt == 0 { input.tap() }
-            }
-            XCTAssertTrue(one.exists, native.debugDescription)
+            numbers.tap()
+            XCTAssertTrue(one.waitForExistence(timeout: 8), native.debugDescription)
             one.tap()
             XCTAssertEqual(input.value as? String, "1", fixture.debugDescription)
+            screenshot("InstalledSystemKeyboard", in: fixture)
+            let emoji = native.buttons.matching(NSPredicate(format: "identifier == 'emoji' OR label IN[c] %@", ["Emoji","表情符号"])).firstMatch
+            XCTAssertTrue(emoji.waitForExistence(timeout: 5), native.debugDescription)
+            emoji.tap()
         }
-        screenshot("InstalledSystemKeyboard", in: fixture)
+        let emojiMode = fixture.textViews.matching(identifier: "input").matching(NSPredicate(format: "label ==[c] 'emoji'")).firstMatch
+        let emojiSearch = fixture.descendants(matching: .any).matching(NSPredicate(
+            format: "label IN[c] %@ OR placeholderValue IN[c] %@", ["Search Emoji","搜索表情符号"], ["Search Emoji","搜索表情符号"])).firstMatch
+        XCTAssertTrue(waitForAny([emojiMode, emojiSearch], seconds: 8), fixture.debugDescription)
+        screenshot("InstalledEmojiKeyboard", in: fixture)
     }
 
     func testHoldSpaceMovesHostCursorWithoutInsertingSpace() {

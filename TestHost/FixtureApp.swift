@@ -122,6 +122,15 @@ private final class FixtureTextView: UITextView {
     override var textInputMode: UITextInputMode? {
         trackingSwitch ? super.textInputMode : (fixtureInputMode() ?? super.textInputMode)
     }
+    override var accessibilityLabel: String? {
+        get {
+            if ProcessInfo.processInfo.arguments.contains("-NaturalKeyboard"), let language = textInputMode?.primaryLanguage {
+                return language
+            }
+            return super.accessibilityLabel
+        }
+        set { super.accessibilityLabel = newValue }
+    }
 }
 
 private struct EmptySearchField: UIViewRepresentable {
