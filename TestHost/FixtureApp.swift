@@ -108,7 +108,7 @@ private struct KeyboardField: UIViewRepresentable {
     }
 }
 
-private func fixtureInputMode() -> UITextInputMode? {
+@MainActor private func fixtureInputMode() -> UITextInputMode? {
     let arguments = ProcessInfo.processInfo.arguments
     if arguments.contains("-MeasureKeyboardSwitch") || arguments.contains("-SystemKeyboard") {
         return UITextInputMode.activeInputModes.first { $0.primaryLanguage?.hasPrefix("en") == true }

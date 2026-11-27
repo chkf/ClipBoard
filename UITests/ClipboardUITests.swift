@@ -143,7 +143,7 @@ final class ClipboardUITests: XCTestCase {
             format: "identifier IN %@", ["keyboardSpace", "autoSwitch"])).firstMatch
         for attempt in 0..<2 where !surface.exists && !entry.exists {
             if !globe.waitForExistence(timeout: 3), owner == fixture, !surface.exists {
-                let search = fixture.searchFields["searchInput"]
+                let search = fixture.descendants(matching: .any).matching(identifier: "searchInput").firstMatch
                 if search.exists { search.tap() } else { fixture.textViews["input"].tap() }
             }
             if surface.exists || entry.exists { break }
@@ -401,7 +401,7 @@ final class ClipboardUITests: XCTestCase {
 
     func testSearchFieldMatchesNativeWhileEmpty() throws {
         enableKeyboard()
-        let field = fixture.searchFields["searchInput"]
+        let field = fixture.descendants(matching: .any).matching(identifier: "searchInput").firstMatch
         fixture.launchArguments = ["-EmptySearch", "-SystemKeyboard"]
         fixture.launch()
         field.tap()
