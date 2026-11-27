@@ -25,14 +25,14 @@ for result in build/Tests.xcresult build/KeyboardMotion.xcresult; do
 done
 defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
 xcodebuild -quiet build-for-testing -project Clipboard.xcodeproj -scheme Clipboard \
-  -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData \
+  -destination "platform=iOS Simulator,id=$device" -destination-timeout 180 -derivedDataPath build/DerivedData \
   CODE_SIGN_IDENTITY=- | tee build/tests.log
 xcrun simctl boot "$device" || xcrun simctl bootstatus "$device" -b
 xcrun simctl bootstatus "$device" -b
 xcrun simctl ui "$device" appearance "${CLIPBOARD_TEST_APPEARANCE:-light}"
 xcrun simctl install "$device" build/DerivedData/Build/Products/Debug-iphonesimulator/ClipboardTestHost.app
 run_tests=(xcodebuild test-without-building -project Clipboard.xcodeproj -scheme Clipboard
-           -destination "platform=iOS Simulator,id=$device" -derivedDataPath build/DerivedData
+           -destination "platform=iOS Simulator,id=$device" -destination-timeout 180 -derivedDataPath build/DerivedData
            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-)
 motion_test=ClipboardUITests/ClipboardUITests/testSystemKeyboardSwitchKeepsFrameSteady
 test_status=0

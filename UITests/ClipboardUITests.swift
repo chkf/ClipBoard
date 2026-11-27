@@ -28,6 +28,10 @@ final class ClipboardUITests: XCTestCase {
     }
 
     private func waitFor(_ element: XCUIElement, seconds: Double = 15) -> Bool {
+        waitForAny([element], seconds: seconds)
+    }
+
+    private func waitForAny(_ elements: [XCUIElement], seconds: Double) -> Bool {
         var end = Date().addingTimeInterval(seconds)
         var granted = false
         repeat {
@@ -35,7 +39,7 @@ final class ClipboardUITests: XCTestCase {
                 end = Date().addingTimeInterval(seconds)
                 granted = true
             }
-            if element.exists { return true }
+            if elements.contains(where: { $0.exists }) { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         } while Date() < end
         return false
@@ -141,13 +145,22 @@ final class ClipboardUITests: XCTestCase {
             globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
         let surface = owner.descendants(matching: .any).matching(NSPredicate(
             format: "identifier IN %@", ["keyboardSpace", "autoSwitch"])).firstMatch
-        for attempt in 0..<2 where !surface.exists && !entry.exists {
-            if !globe.waitForExistence(timeout: 3), owner == fixture, !surface.exists {
+        let controls = [surface, globe]
+        if owner == fixture, !waitForAny(controls, seconds: 3) {
+            func focusInput() {
                 let search = fixture.descendants(matching: .any).matching(identifier: "searchInput").firstMatch
                 if search.exists { search.tap() } else { fixture.textViews["input"].tap() }
             }
+            focusInput()
+            if !waitForAny(controls, seconds: 8), !fixture.launchArguments.contains("-MeasureKeyboardSwitch") {
+                // A system paste alert can end the fixture's first editing session before any keyboard attaches.
+                fixture.launch()
+                focusInput()
+            }
+        }
+        for attempt in 0..<2 where !surface.exists && !entry.exists {
+            guard waitForAny(controls, seconds: 10) else { break }
             if surface.exists || entry.exists { break }
-            XCTAssertTrue(globe.waitForExistence(timeout: 8), owner.debugDescription)
             if attempt == 0 {
                 globe.tap()
             } else {
