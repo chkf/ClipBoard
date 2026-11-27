@@ -55,5 +55,10 @@ trap stop_recording EXIT
 "${run_tests[@]}" "-only-testing:$motion_test" -resultBundlePath build/KeyboardMotion.xcresult \
   | tee -a build/tests.log || test_status=$?
 stop_recording
-python3 scripts/check-keyboard-motion.py build/keyboard-motion.mov build/screenshots/KeyboardSwitch.mp4 | tee -a build/tests.log
+mkdir -p build/screenshots
+if ! python3 scripts/check-keyboard-motion.py build/keyboard-motion.mov build/screenshots/KeyboardSwitch.mp4 | tee -a build/tests.log; then
+  ffmpeg -v error -y -i build/keyboard-motion.mov -an -vf 'scale=360:-2,fps=12' -c:v libx264 -preset veryfast -crf 26 \
+    -movflags +faststart build/screenshots/KeyboardSwitch-diagnostic.mp4
+  exit 1
+fi
 exit "$test_status"

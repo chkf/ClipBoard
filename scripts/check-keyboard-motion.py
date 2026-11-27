@@ -1,5 +1,6 @@
 """Track the actual history toolbar in the composited simulator video, including its first frame."""
 import json
+from itertools import groupby
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +18,37 @@ def space_bar_ink(frame, width, height):
             if max(abs(a - b) for a, b in zip(frame[p:p+3], background)) > 20:
                 ink += 1
     return ink
+
+
+def command_key_position(frame, width, height):
+    # Three equal command keys occupy the same trailing gutter. On Apple's letter
+    # keyboard the second row is inset. Track the rail even before history loads.
+    red = frame[::3]
+    gap = round(width * .855)
+    face_left, face_right = round(width * .885), round(width * .97)
+    matches = []
+    for y in range(height // 4, height * 9 // 10):
+        row = y * width
+        fill = red[row + face_left]
+        if fill - min(red[row + gap - 1:row + gap + 2]) < 13 or abs(red[row + face_right] - fill) > 7:
+            continue
+        matches.append(y)
+    bands = []
+    for _, group in groupby(enumerate(matches), key=lambda item: item[1] - item[0]):
+        rows = [y for _, y in group]
+        if 12 <= len(rows) <= 27:
+            bands.append(rows)
+    for first, middle, last in zip(bands, bands[1:], bands[2:]):
+        step = middle[0] - first[0]
+        if not 22 <= step <= 31 or abs(last[0] - middle[0] - step) > 2:
+            continue
+        icon_left, icon_right = round(width * .90), round(width * .96)
+        for y in first[2:-2]:
+            row = y * width
+            fill = red[row + face_left]
+            if any(abs(value - fill) > 24 for value in red[row + icon_left:row + icon_right]):
+                return (first[0] + first[-1]) / 2
+    return None
 
 
 def save_preview(video, first_frame, destination):
@@ -42,7 +74,7 @@ def inspect_recording(video, minimum_native_frames):
     height = 2 * int(0.5 + (201 * stream["height"] / stream["width"]) / 2)
     # On the test iPhone, one sampled pixel corresponds to two screen points.
     width = 201
-    # This narrow strip crosses the blue trash icon and the fixture's magenta marker.
+    # The fixture draws a magenta marker near the upper trailing corner while measuring.
     rail = range(width - 20, width - 12)
     filters = f"scale={width}:{height},settb=1/30,setpts=N"
     decoder = subprocess.Popen(["ffmpeg", "-v", "error", "-i", video, "-an", "-vf", filters,
@@ -65,19 +97,11 @@ def inspect_recording(video, minimum_native_frames):
             if not any(all(magenta(y * stride + (rail.start + x) * 3) for x in (1, 4, 6))
                        for y in range(0, height // 3)):
                 continue
-            rows = []
-            for y in range(height // 4, height * 9 // 10):
-                blue = 0
-                for x in rail:
-                    index = y * stride + x * 3
-                    r, g, b = frame[index:index + 3]
-                    blue += b > 105 and b - r > 55 and b - g > 18
-                if blue >= 2:
-                    rows.append(y)
-            if 5 <= len(rows) <= 14 and rows[-1] - rows[0] <= 14:
+            position = command_key_position(frame, width, height)
+            if position is not None:
                 if first_visible_frame is None:
                     first_visible_frame = frame_index
-                positions.append((rows[0] + rows[-1]) / 2)
+                positions.append(position)
                 space_ink.append(space_bar_ink(frame, width, height))
             elif not positions:
                 system_frames += 1
