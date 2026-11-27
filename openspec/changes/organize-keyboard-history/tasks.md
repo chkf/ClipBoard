@@ -10,5 +10,7 @@
 
 ## 3. Verification and packaging
 
-- [ ] 3.1 Exercise the normal keyboard, legacy history, both signing modes and the new gestures.
-- [ ] 3.2 Build and verify the installable release assets and installation instructions.
+- [x] 3.1 Exercise the normal keyboard, legacy history, both signing modes and the new gestures.
+- [x] 3.2 Build and verify the installable release assets and installation instructions.
+
+The [release workflow](https://github.com/chkf/ClipBoard/actions/runs/46048896755) passed on both the independent-container and remapped App Group simulators. Both [v1.3.0 IPA downloads](https://github.com/chkf/ClipBoard/releases/tag/v1.3.0) matched their published SHA-256 checksums and contained the keyboard extension.
