@@ -1,7 +1,9 @@
 import SwiftUI
 import UIKit
 
-private final class HistoryInputView: UIInputView {
+private final class HistoryInputView: UIInputView, UIInputViewAudioFeedback {
+    var enableInputClicksWhenVisible: Bool { true }
+
     var panelHeight: CGFloat = 243 {
         didSet { if oldValue != panelHeight { invalidateIntrinsicContentSize() } }
     }
@@ -15,6 +17,7 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var session = ClipboardSession(keyboardAccess: { [weak self] in self?.hasFullAccess ?? false })
     private let presentation = KeyboardPresentation()
     private let surface = UIView()
+    private lazy var keyImpact = UIImpactFeedbackGenerator(style: .light, view: view)
     private var rootHeight: NSLayoutConstraint?
     private var surfaceHeight: NSLayoutConstraint?
     private var visible = false
@@ -35,13 +38,12 @@ final class KeyboardViewController: UIInputViewController {
         // The remote view can momentarily cover more than the keyboard during the handoff.
         let width = UIScreen.main.bounds.width
         let target = height(for: width)
-        let panel = HistoryInputView(frame: CGRect(x: 0, y: 0, width: width, height: target), inputViewStyle: .default)
+        let panel = HistoryInputView(frame: CGRect(x: 0, y: 0, width: width, height: target), inputViewStyle: .keyboard)
         panel.allowsSelfSizing = true
         panel.panelHeight = target
         panel.isOpaque = false
-        panel.backgroundColor = .clear
         panel.clipsToBounds = true
-        view = panel
+        inputView = panel
         preferredContentSize = CGSize(width: 0, height: target)
     }
 
@@ -63,12 +65,14 @@ final class KeyboardViewController: UIInputViewController {
             globe: { [weak self] button in
                 if let self { button.addTarget(self, action: #selector(self.handleInputModeList(from:with:)), for: .allTouchEvents) }
             })
-        let host = UIHostingController(rootView: keyboard)
+        let host = UIHostingController(rootView: keyboard.environment(\.keyboardFeedback, { [weak self] in
+            self?.playKeyFeedback()
+        }))
         addChild(host)
         host.view.backgroundColor = .clear
         host.view.clipsToBounds = true
         host.view.translatesAutoresizingMaskIntoConstraints = false
-        surface.backgroundColor = KeyboardPalette.tray
+        surface.backgroundColor = .clear
         surface.clipsToBounds = true
         surface.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(surface)
@@ -148,7 +152,22 @@ final class KeyboardViewController: UIInputViewController {
         updateHeight()
         hostActive()
     }
-    override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); hostActive() }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if hapticsEnabled { keyImpact.prepare() }
+        hostActive()
+    }
+
+    private var hapticsEnabled: Bool {
+        UserDefaults.standard.object(forKey: KeyboardPresentation.hapticsPreference) as? Bool ?? true
+    }
+    private func playKeyFeedback() {
+        UIDevice.current.playInputClick()
+        if hapticsEnabled {
+            keyImpact.impactOccurred()
+            keyImpact.prepare()
+        }
+    }
     override func viewWillDisappear(_ animated: Bool) {
         visible = false
         session.active = false

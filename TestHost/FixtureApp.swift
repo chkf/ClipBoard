@@ -43,7 +43,11 @@ struct FixtureApp: App {
                     KeyboardFrameProbe(measure: measure).frame(width: 2, height: 2)
                         .accessibilityIdentifier("keyboardTravel")
                 }
-                KeyboardField(text: $input, trackingSwitch: measure).frame(height: 100).border(.secondary)
+                if ProcessInfo.processInfo.arguments.contains("-EmptySearch") {
+                    EmptySearchField().frame(height: 40)
+                } else {
+                    KeyboardField(text: $input, trackingSwitch: measure).frame(height: 100).border(.secondary)
+                }
                 Text(verbatim: input).accessibilityIdentifier("inserted")
             }
             .padding()
@@ -104,18 +108,34 @@ private struct KeyboardField: UIViewRepresentable {
     }
 }
 
+private func fixtureInputMode() -> UITextInputMode? {
+    let arguments = ProcessInfo.processInfo.arguments
+    if arguments.contains("-MeasureKeyboardSwitch") || arguments.contains("-SystemKeyboard") {
+        return UITextInputMode.activeInputModes.first { $0.primaryLanguage?.hasPrefix("en") == true }
+    }
+    return ClipboardInputMode.enabled
+}
+
 private final class FixtureTextView: UITextView {
     var trackingSwitch = false
-
     override var textInputMode: UITextInputMode? {
-        if trackingSwitch { return super.textInputMode }
-        let arguments = ProcessInfo.processInfo.arguments
-        if (arguments.contains("-MeasureKeyboardSwitch") || arguments.contains("-SystemKeyboard")),
-           let english = UITextInputMode.activeInputModes.first(where: { $0.primaryLanguage?.hasPrefix("en") == true }) {
-            return english
-        }
-        return ClipboardInputMode.enabled ?? super.textInputMode
+        trackingSwitch ? super.textInputMode : (fixtureInputMode() ?? super.textInputMode)
     }
+}
+
+private struct EmptySearchField: UIViewRepresentable {
+    final class Field: UISearchTextField {
+        override var textInputMode: UITextInputMode? { fixtureInputMode() ?? super.textInputMode }
+    }
+    func makeUIView(context: Context) -> Field {
+        let field = Field()
+        field.accessibilityIdentifier = "searchInput"
+        field.placeholder = "Search"
+        field.returnKeyType = .search
+        field.enablesReturnKeyAutomatically = true
+        return field
+    }
+    func updateUIView(_ field: Field, context: Context) {}
 }
 
 private struct KeyboardFrameProbe: UIViewRepresentable {

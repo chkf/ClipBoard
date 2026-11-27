@@ -143,7 +143,8 @@ final class ClipboardUITests: XCTestCase {
             format: "identifier IN %@", ["keyboardSpace", "autoSwitch"])).firstMatch
         for attempt in 0..<2 where !surface.exists && !entry.exists {
             if !globe.waitForExistence(timeout: 3), owner == fixture, !surface.exists {
-                fixture.textViews["input"].tap()
+                let search = fixture.searchFields["searchInput"]
+                if search.exists { search.tap() } else { fixture.textViews["input"].tap() }
             }
             if surface.exists || entry.exists { break }
             XCTAssertTrue(globe.waitForExistence(timeout: 8), owner.debugDescription)
@@ -265,6 +266,16 @@ final class ClipboardUITests: XCTestCase {
         let picture = historyKey("图片", in: fixture)
         XCTAssertTrue(waitFor(picture, seconds: 30), fixture.debugDescription)
         screenshot("ClipboardKeyboard", in: fixture)
+        let footer = fixture.buttons["keyboardSpace"].frame
+        let commands = ["clearHistory", "openSearch", "keyboardBackspace"]
+        for (record, id) in zip([picture, historyKey(text, in: fixture), short], commands) {
+            let face = fixture.buttons[id].frame
+            XCTAssertEqual(face.minY, record.frame.minY, accuracy: 1.5, id)
+            XCTAssertEqual(face.maxY, record.frame.maxY, accuracy: 1.5, id)
+            XCTAssertEqual(face.height, footer.height, accuracy: 1.5, id)
+            XCTAssertLessThan(face.maxY, footer.minY, id)
+            XCTAssertLessThanOrEqual(face.maxX, fixture.frame.maxX, id)
+        }
         tapTrailingEdge(picture, in: fixture)
         fixture.buttons["Check clipboard image"].tap()
         XCTAssertEqual(fixture.staticTexts["copyStatus"].label, "Image still on clipboard")
@@ -325,6 +336,12 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed)
         let after = toggle.value as? String
         XCTAssertNotEqual(before, after)
+        let haptics = app.switches["keyboardHaptics"]
+        let originalHaptics = haptics.value as? String
+        tapSwitch(haptics)
+        let hapticsChanged = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", originalHaptics ?? ""), object: haptics)
+        XCTAssertEqual(XCTWaiter.wait(for: [hapticsChanged], timeout: 5), .completed)
+        let savedHaptics = haptics.value as? String
         app.buttons["7 天"].tap()
         screenshot("ClipboardKeyboardSettings", in: app)
         app.buttons["finishTrial"].tap()
@@ -335,6 +352,8 @@ final class ClipboardUITests: XCTestCase {
         app.buttons["openKeyboardSettings"].tap()
         selectClipboard(in: app, expecting: toggle)
         XCTAssertEqual(toggle.value as? String, after)
+        XCTAssertEqual(haptics.value as? String, savedHaptics)
+        tapSwitch(haptics)
         XCTAssertTrue(app.buttons["7 天"].isSelected)
         app.buttons["finishTrial"].tap()
     }
@@ -347,11 +366,7 @@ final class ClipboardUITests: XCTestCase {
             fixture.textViews["input"].tap()
             let keyboard = fixture.keyboards.firstMatch
             XCTAssertTrue(keyboard.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch.waitForExistence(timeout: 8))
-            let native = keyboard.descendants(matching: .any).matching(NSPredicate(
-                format: "label IN[c] %@ OR identifier IN[c] %@", [name, translated], ["Return", name, translated])).firstMatch
-            let nativeKey = try XCTUnwrap(native.exists ? native : keyboard.keys.allElementsBoundByIndex.filter {
-                $0.frame.midX > fixture.frame.width * 0.80 && $0.frame.width > 55
-            }.max(by: { $0.frame.midY < $1.frame.midY }))
+            let nativeKey = try nativeReturn(name, translated, in: keyboard)
             screenshot("NativeReturn" + name, in: fixture)
             let nativeScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
             let nativeColor = nativeScreen.keycapColor(in: nativeKey.frame.insetBy(dx: 3, dy: 3))
@@ -374,5 +389,70 @@ final class ClipboardUITests: XCTestCase {
             XCTAssertEqual(result.filter(\.isNewline).count, 1)
             XCTAssertEqual(result.filter { !$0.isNewline }, "sample")
         }
+    }
+
+    private func nativeReturn(_ name: String, _ translated: String, in keyboard: XCUIElement) throws -> XCUIElement {
+        let native = keyboard.descendants(matching: .any).matching(NSPredicate(
+            format: "label IN[c] %@ OR identifier IN[c] %@", [name, translated], ["Return", name, translated])).firstMatch
+        return try XCTUnwrap(native.exists ? native : keyboard.keys.allElementsBoundByIndex.filter {
+            $0.frame.midX > fixture.frame.width * 0.80 && $0.frame.width > 55
+        }.max(by: { $0.frame.midY < $1.frame.midY }))
+    }
+
+    func testSearchFieldMatchesNativeWhileEmpty() throws {
+        enableKeyboard()
+        let field = fixture.searchFields["searchInput"]
+        fixture.launchArguments = ["-EmptySearch", "-SystemKeyboard"]
+        fixture.launch()
+        field.tap()
+        let keyboard = fixture.keyboards.firstMatch
+        XCTAssertTrue(keyboard.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch.waitForExistence(timeout: 8))
+        let native = try nativeReturn("Search", "搜索", in: keyboard)
+        let systemMidY = native.frame.midY
+        screenshot("NativeEmptySearch", in: fixture)
+        let systemScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+
+        fixture.launchArguments = ["-EmptySearch"]
+        fixture.launch()
+        field.tap()
+        let custom = fixture.buttons["keyboardReturn"]
+        selectClipboard(in: fixture, expecting: custom)
+        for (item, name) in [("image", "图片"), ("text", text), ("second", "短句")] {
+            copyInFixture(item)
+            XCTAssertTrue(waitFor(historyKey(name, in: fixture), seconds: 30))
+        }
+        XCTAssertFalse(custom.isEnabled)
+        screenshot("ClipboardEmptySearch", in: fixture)
+        let customScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+        let ids = ["showNumbers", "showEmoji", "keyboardSpace", "keyboardReturn"]
+        for (fraction, id) in zip([0.075, 0.19, 0.49, 0.87], ids) {
+            let stock = try XCTUnwrap(systemScreen.bottomKeycap(at: CGPoint(x: fixture.frame.width * fraction, y: systemMidY)), id)
+            let key = fixture.buttons[id].frame
+            let ours = try XCTUnwrap(customScreen.bottomKeycap(at: CGPoint(x: key.midX, y: key.midY)), id)
+            XCTAssertEqual(ours.minX, stock.minX, accuracy: 4, id)
+            XCTAssertEqual(ours.maxX, stock.maxX, accuracy: 4, id)
+            XCTAssertEqual(ours.minY, stock.minY, accuracy: 4, id)
+            XCTAssertEqual(ours.maxY, stock.maxY, accuracy: 4, id)
+            assertColorsMatch(systemScreen.keycapColor(in: stock.insetBy(dx: 5, dy: 5)),
+                              customScreen.keycapColor(in: ours.insetBy(dx: 5, dy: 5)), id)
+            if id == "keyboardSpace" {
+                let stockGap = CGRect(x: stock.midX - 8, y: stock.minY - 7, width: 16, height: 4)
+                let ourGap = CGRect(x: ours.midX - 8, y: ours.minY - 7, width: 16, height: 4)
+                assertColorsMatch(systemScreen.keycapColor(in: stockGap), customScreen.keycapColor(in: ourGap), "keyboard background")
+            }
+        }
+        fixture.buttons["showNumbers"].tap()
+        fixture.buttons["key-8"].tap()
+        XCTAssertEqual(field.value as? String, "8")
+        XCTAssertTrue(custom.isEnabled)
+        fixture.buttons["keyboardBackspace"].tap()
+        XCTAssertFalse(custom.isEnabled)
+    }
+
+    private func assertColorsMatch(_ system: [Int], _ custom: [Int], _ part: String) {
+        XCTAssertEqual(system.count, 3, part)
+        XCTAssertEqual(custom.count, 3, part)
+        XCTAssertTrue(zip(system, custom).allSatisfy { abs($0.0 - $0.1) <= 5 },
+                      "\(part): system RGB \(system), Clipboard RGB \(custom)")
     }
 }

@@ -37,4 +37,28 @@ struct KeyboardScreen {
         guard !red.isEmpty else { return [] }
         return [red, green, blue].map { $0.sorted()[$0.count / 2] }
     }
+
+    // UIKit exposes expanded hit regions. Measure the painted faces, including the space bar.
+    func bottomKeycap(at point: CGPoint) -> CGRect? {
+        let x = Int(point.x * scale), y = Int((point.y - 12) * scale)
+        guard (1..<(width - 1)).contains(x), (1..<(height - 1)).contains(y) else { return nil }
+        let color = keycapColor(in: CGRect(x: point.x - 4, y: point.y - 15, width: 8, height: 6))
+        guard color.count == 3 else { return nil }
+        func isFace(_ column: Int, _ row: Int) -> Bool {
+            let offset = (row * width + column) * 4
+            return (0..<3).allSatisfy { abs(Int(pixels[offset + $0]) - color[$0]) <= 4 }
+        }
+        var left = x, right = x
+        while left > 0, isFace(left - 1, y) { left -= 1 }
+        while right + 1 < width, isFace(right + 1, y) { right += 1 }
+        guard right - left > 7 else { return nil }
+        func hasFace(at row: Int) -> Bool {
+            (left...right).filter { isFace($0, row) }.count > (right - left) * 2 / 5
+        }
+        var top = y, bottom = y
+        while top > 0, hasFace(at: top - 1) { top -= 1 }
+        while bottom + 1 < height, hasFace(at: bottom + 1) { bottom += 1 }
+        return CGRect(x: CGFloat(left) / scale, y: CGFloat(top) / scale,
+                      width: CGFloat(right - left + 1) / scale, height: CGFloat(bottom - top + 1) / scale)
+    }
 }

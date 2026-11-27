@@ -3,6 +3,7 @@ import SwiftUI
 struct ClipLabel: View {
     let row: ClipRow
     let session: ClipboardSession
+    let keyHeight: CGFloat
     @State private var thumbnail: UIImage?
 
     var body: some View {
@@ -15,7 +16,7 @@ struct ClipLabel: View {
                         Image(systemName: "photo").foregroundStyle(.secondary)
                     }
                 }
-                .frame(height: 42, alignment: .leading)
+                .frame(height: min(42, keyHeight - 4), alignment: .leading)
                 .accessibilityLabel("图片")
                 .task(id: row.id) {
                     thumbnail = nil
