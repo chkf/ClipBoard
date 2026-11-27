@@ -111,7 +111,8 @@ final class ClipboardSession: ObservableObject {
             if store == nil {
                 let connection = try await open(!fullAccess)
                 guard generation == cycle else { return }
-                store = connection
+                // A pasteboard notification can finish opening the session while the timer is awaiting I/O.
+                if store == nil { store = connection }
             }
             guard let store else { return }
             if fullAccess, Date().timeIntervalSince(lastPrune) >= 60 {

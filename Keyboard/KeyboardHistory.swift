@@ -50,7 +50,7 @@ struct KeyboardHistory: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else {
-                    header.frame(height: layout.headerHeight)
+                    header(height: layout.headerHeight).frame(height: layout.headerHeight)
                     HStack(alignment: .top, spacing: layout.columnGap) {
                         content(layout).frame(maxWidth: .infinity, maxHeight: .infinity)
                         commands(layout).frame(width: rail)
@@ -66,7 +66,7 @@ struct KeyboardHistory: View {
         }
     }
 
-    @ViewBuilder private var header: some View {
+    @ViewBuilder private func header(height: CGFloat) -> some View {
         if case .file(let row) = panel {
             ZStack {
                 VStack(spacing: 0) {
@@ -85,7 +85,7 @@ struct KeyboardHistory: View {
                                 Button { feedback(); browse(category) } label: {
                                     Text(verbatim: category.name).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                                         .font(.subheadline.weight(current ? .semibold : .regular))
-                                        .padding(.horizontal, 8).frame(minWidth: 44, maxHeight: .infinity)
+                                        .padding(.horizontal, 8).frame(minWidth: 44).frame(height: height)
                                         .contentShape(Rectangle())
                                 }.buttonStyle(.plain).foregroundStyle(current ? Color.primary : Color.secondary)
                                     .accessibilityAddTraits(current ? .isSelected : [])
@@ -93,14 +93,13 @@ struct KeyboardHistory: View {
                                     .id(category.id)
                             }
                         }
-                    }.scrollIndicators(.hidden)
+                    }.scrollIndicators(.hidden).clipped()
                         .onChange(of: session.category) { _, value in scroll.scrollTo(value, anchor: .center) }
                 }
-                Button { feedback(); panel = panel == .categories ? .history : .categories } label: {
-                    Image(systemName: panel == .categories ? "chevron.up" : "chevron.down")
-                        .font(.body.weight(.medium)).frame(width: 44).frame(maxHeight: .infinity).contentShape(Rectangle())
-                }.buttonStyle(.plain)
-                    .accessibilityLabel(panel == .categories ? "收起分类" : "展开全部分类").accessibilityIdentifier("expandCategories")
+                CategoryDisclosure(expanded: panel == .categories) {
+                    feedback()
+                    panel = panel == .categories ? .history : .categories
+                }.frame(width: 44, height: height)
             }
         }
     }
@@ -145,7 +144,7 @@ struct KeyboardHistory: View {
                 }
                 folderGrid(others, filing: row)
             }
-        }.accessibilityIdentifier("categoryList")
+        }
     }
 
     private func folderGrid(_ categories: [ClipCategory], filing row: ClipRow?) -> some View {

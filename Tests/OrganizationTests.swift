@@ -59,4 +59,27 @@ final class OrganizationTests: XCTestCase {
         let ordinary = try await store.page(category: "")
         XCTAssertEqual(ordinary.count,4)
     }
+
+    func testRetryingCategoryChangesPreservesMembershipAndRejectsStaleDeletion() async throws {
+        let store = try HistoryStore(directory: directory)
+        let group = ClipCategory(id: UUID().uuidString, name: "草稿")
+        let add = CategoryRequest(id: UUID(), operation: .add, category: group)
+        try await store.applyCategory(add)
+        try await store.applyCategory(add)
+        let row = try await capture("周报", 1, into: store)
+        try await store.organize(.move(row.id, to: group.id))
+        let renamed = ClipCategory(id: group.id, name: "已确认")
+        try await store.applyCategory(CategoryRequest(id: UUID(), operation: .rename, category: renamed))
+        do {
+            try await store.applyCategory(CategoryRequest(id: UUID(), operation: .remove, category: group))
+            XCTFail("A pending deletion must still match the displayed category")
+        } catch CategoryError.changed { }
+        let filed = try await store.page(category: group.id)
+        XCTAssertEqual(filed, [row])
+        let remove = CategoryRequest(id: UUID(), operation: .remove, category: renamed)
+        try await store.applyCategory(remove)
+        try await store.applyCategory(remove)
+        let ordinary = try await store.page(category: ClipCategory.ordinary.id)
+        XCTAssertEqual(ordinary, [row])
+    }
 }

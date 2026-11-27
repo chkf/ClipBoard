@@ -137,3 +137,31 @@ struct SystemGlobe: UIViewRepresentable {
     }
     func updateUIView(_ view: UIButton, context: Context) {}
 }
+
+struct CategoryDisclosure: UIViewRepresentable {
+    let expanded: Bool
+    let toggle: () -> Void
+
+    final class Coordinator {
+        var toggle: () -> Void
+        init(_ toggle: @escaping () -> Void) { self.toggle = toggle }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(toggle) }
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.tintColor = .label
+        button.accessibilityIdentifier = "expandCategories"
+        button.addAction(UIAction { [weak coordinator = context.coordinator] _ in coordinator?.toggle() }, for: .primaryActionTriggered)
+        return button
+    }
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.toggle = toggle
+        button.accessibilityLabel = expanded ? "收起分类" : "展开全部分类"
+        let symbol = expanded ? "chevron.up" : "chevron.down"
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)), for: .normal)
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else { return nil }
+        return CGSize(width: width, height: height)
+    }
+}
