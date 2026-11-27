@@ -5,11 +5,12 @@ enum HistoryAction {
 }
 
 enum CategoryError: LocalizedError {
-    case emptyName, duplicateName
+    case emptyName, duplicateName, changed
     var errorDescription: String? {
         switch self {
         case .emptyName: return "请输入分类名称。"
         case .duplicateName: return "已有同名分类。"
+        case .changed: return "此分类已经变更，请检查名称后重试。"
         }
     }
 }
@@ -31,7 +32,14 @@ extension HistoryStore {
         try db.transaction {
             let duplicate = try db.query("SELECT 1 FROM categories WHERE name=? AND id<>?", [.text(name),.text(category.id)]) { $0.integer(0) }
             guard name != ClipCategory.ordinary.name, duplicate.isEmpty else { throw CategoryError.duplicateName }
-            if id == nil || inserting { try db.execute("INSERT INTO categories(id,name) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name",[.text(category.id),.text(name)]) }
+            if id == nil || inserting {
+                let existing = try db.query("SELECT name FROM categories WHERE id=?", [.text(category.id)]) { $0.text(0) }.first
+                if let existing {
+                    guard existing == name else { throw CategoryError.changed }
+                    return
+                }
+                try db.execute("INSERT INTO categories(id,name) VALUES(?,?)",[.text(category.id),.text(name)])
+            }
             else if try db.execute("UPDATE categories SET name=? WHERE id=?",[.text(name),.text(category.id)]) == 0 { throw HistoryError.missing }
             try bumpRevision()
         }
@@ -42,13 +50,15 @@ extension HistoryStore {
         switch request.operation {
         case .add, .rename:
             try saveCategory(id: request.category.id, name: request.category.name, inserting: request.operation == .add)
-        case .remove: try deleteCategory(request.category.id)
+        case .remove: try deleteCategory(request.category.id, expectedName: request.category.name)
         }
     }
 
-    func deleteCategory(_ id: String) throws {
+    func deleteCategory(_ id: String, expectedName: String? = nil) throws {
         guard id != ClipCategory.ordinary.id else { return }
         try db.transaction {
+            if let expectedName, let actual = try db.query("SELECT name FROM categories WHERE id=?", [.text(id)], map: { $0.text(0) }).first,
+               actual != expectedName { throw CategoryError.changed }
             // Cascading membership deletion returns every member to ordinary history.
             if try db.execute("DELETE FROM categories WHERE id=?",[.text(id)]) > 0 { try bumpRevision() }
         }

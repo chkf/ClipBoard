@@ -26,7 +26,12 @@ struct KeyboardHistory: View {
             VStack(spacing: 0) {
                 if let request = presentation.categoryRequest {
                     VStack(spacing: 8) {
-                        Text(request.title).font(.headline).lineLimit(2)
+                        let existing = session.categories.first { $0.id == request.category.id }
+                        if request.operation == .rename, let existing {
+                            Text("将「" + existing.name + "」改为「" + request.category.name + "」").font(.headline).lineLimit(3)
+                        } else if request.operation == .remove, let existing {
+                            Text("删除「" + existing.name + "」").font(.headline).lineLimit(2)
+                        } else { Text(request.title).font(.headline).lineLimit(2) }
                         if request.operation == .remove { note("其中的记录将移回「普通」。") }
                         if let message = session.message { note(message) }
                         if !session.fullAccess { note("请在键盘设置中允许完全访问，然后重试。") }

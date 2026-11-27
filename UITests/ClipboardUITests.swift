@@ -434,6 +434,27 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertTrue(fixture.buttons.matching(NSPredicate(format: "label == %@ AND identifier BEGINSWITH 'folder-'", name)).firstMatch.waitForExistence(timeout: 8))
     }
 
+    func testGlobeHandsTheActiveFieldBackToAnInstalledKeyboard() {
+        enableKeyboard()
+        fixture.launchArguments = ["-NaturalKeyboard"]
+        fixture.launch()
+        fixture.textViews["input"].tap()
+        let space = fixture.buttons["keyboardSpace"]
+        selectClipboard(in: fixture, expecting: space)
+        fixture.buttons["nextKeyboard"].tap()
+        XCTAssertTrue(space.waitForNonExistence(timeout: 8), fixture.debugDescription)
+        let native = fixture.keyboards.firstMatch
+        XCTAssertTrue(native.waitForExistence(timeout: 8), fixture.debugDescription)
+        if native.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch.exists {
+            let numbers = native.descendants(matching: .any).matching(NSPredicate(
+                format: "label IN[c] %@ OR identifier IN[c] %@", ["more","numbers","123","数字"], ["more","123"])).firstMatch
+            XCTAssertTrue(numbers.exists, native.debugDescription)
+            numbers.tap()
+            XCTAssertTrue(native.keys["1"].waitForExistence(timeout: 5), native.debugDescription)
+        }
+        screenshot("InstalledSystemKeyboard", in: fixture)
+    }
+
     func testHoldSpaceMovesHostCursorWithoutInsertingSpace() {
         enableKeyboard()
         fixture.launchArguments = ["-ReturnKey", "Return"]
