@@ -21,6 +21,7 @@ final class KeyboardViewController: UIInputViewController {
     private var rootHeight: NSLayoutConstraint?
     private var surfaceHeight: NSLayoutConstraint?
     private var visible = false
+    private var spaceNameTimeout: Task<Void, Never>?
     private var layoutWidth: CGFloat = 0
 
     private var heightKey: String {
@@ -148,6 +149,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        if !visible { presentation.showsInputModeName = true }
         visible = true
         updateHeight()
         hostActive()
@@ -156,6 +158,14 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidAppear(animated)
         if hapticsEnabled { keyImpact.prepare() }
         hostActive()
+        if presentation.showsInputModeName, spaceNameTimeout == nil {
+            spaceNameTimeout = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(1150))
+                guard !Task.isCancelled, let self else { return }
+                self.presentation.showsInputModeName = false
+                self.spaceNameTimeout = nil
+            }
+        }
     }
 
     private var hapticsEnabled: Bool {
@@ -170,6 +180,9 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewWillDisappear(_ animated: Bool) {
         visible = false
+        spaceNameTimeout?.cancel()
+        spaceNameTimeout = nil
+        presentation.showsInputModeName = false
         session.active = false
         super.viewWillDisappear(animated)
     }

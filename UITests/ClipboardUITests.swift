@@ -206,7 +206,7 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertFalse(app.textViews["trialInput"].exists)
     }
 
-    func testSystemKeyboardSwitchKeepsFrameSteady() {
+    func testSystemKeyboardSwitchKeepsFrameSteady() async throws {
         enableKeyboard()
         fixture.launch()
         copyInFixture("second")
@@ -233,6 +233,8 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertGreaterThan(samples[2], Double(fixture.frame.height) * 0.4)
         XCTAssertLessThan(samples[2], Double(fixture.frame.height) * 0.92)
         XCTAssertEqual(samples[1], samples[2], accuracy: 8, "The settled keyboard changed the host's input area")
+        // Keep the switch marked while the input mode name fades off the space bar.
+        try await Task.sleep(for: .seconds(2))
         fixture.buttons["Finish measurement"].tap()
     }
 

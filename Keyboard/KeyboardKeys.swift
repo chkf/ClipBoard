@@ -81,6 +81,7 @@ struct HostReturnKey: Equatable {
     @Published var returnKey = HostReturnKey()
     @Published var heightOffset = 0
     @Published var needsGlobe = false
+    @Published var showsInputModeName = false
 }
 
 struct KeycapStyle: ButtonStyle {

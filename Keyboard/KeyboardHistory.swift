@@ -18,6 +18,8 @@ struct KeyboardHistory: View {
     @State private var copiedImage = false
     @AppStorage(KeyboardPresentation.hapticsPreference) private var hapticsEnabled = true
     @Environment(\.keyboardFeedback) private var feedback
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let inputModeName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Clipboard"
 
     var body: some View {
         GeometryReader { bounds in
@@ -139,6 +141,15 @@ struct KeyboardHistory: View {
                 if emoji { showHistory() } else { presentation.page = .emoji }
             }.frame(width: layout.smallKey)
             KeyboardKey(label: "空格", id: "keyboardSpace", title: "") { type(" ") }
+                .overlay {
+                    Text(verbatim: Self.inputModeName)
+                        .font(.system(size: 16)).lineLimit(1).minimumScaleFactor(0.7)
+                        .foregroundStyle(.secondary).padding(.horizontal, 4)
+                        .opacity(presentation.showsInputModeName ? 1 : 0)
+                        .animation(reduceMotion || presentation.showsInputModeName ? nil : .easeOut(duration: 0.22),
+                                   value: presentation.showsInputModeName)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
             let key = presentation.page == .search ? HostReturnKey(.search) : presentation.returnKey
             KeyboardKey(label: key.label, id: "keyboardReturn", symbol: key.symbol,
                         fill: key.fill, foreground: key.foreground, fontSize: key.symbol == nil ? 17 : 19) {
