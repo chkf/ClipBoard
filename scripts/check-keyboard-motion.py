@@ -22,14 +22,20 @@ def space_bar_ink(frame, width, height):
 def save_preview(video, first_frame, destination):
     frames = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "v:0",
         "-show_entries", "frame=best_effort_timestamp_time", "-of", "json", video]))["frames"]
-    start = float(frames[first_frame]["best_effort_timestamp_time"]) - float(frames[0]["best_effort_timestamp_time"])
+    first_time = float(frames[first_frame]["best_effort_timestamp_time"])
+    start = first_frame
+    while start > 0 and float(frames[start - 1]["best_effort_timestamp_time"]) >= first_time - 0.5:
+        start -= 1
     Path(destination).parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(max(0, start - 0.5)), "-i", video, "-t", "3.5",
-                    "-an", "-vf", "scale=480:-2", "-c:v", "libx264", "-crf", "19", "-pix_fmt", "yuv420p",
+    # Select the actual decoded frame. A time-based seek can land in another scene
+    # when a simctl screen recording has a nonzero start time or a QuickTime edit list.
+    filters = f"trim=start_frame={start},setpts=PTS-STARTPTS,scale=480:-2,fps=30"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", video, "-t", "3.5",
+                    "-an", "-vf", filters, "-c:v", "libx264", "-crf", "19", "-pix_fmt", "yuv420p",
                     "-movflags", "+faststart", destination], check=True)
 
 
-def main(video, preview=None):
+def inspect_recording(video, minimum_native_frames):
     info = subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "v:0",
                                     "-show_entries", "stream=width,height", "-of", "json", video])
     stream = json.loads(info)["streams"][0]
@@ -78,7 +84,7 @@ def main(video, preview=None):
     finally:
         decoder.stdout.close()
         status = decoder.wait()
-    if status or system_frames < 2 or len(positions) < 2:
+    if status or system_frames < minimum_native_frames or len(positions) < 2:
         raise SystemExit(f"Missing visual handoff: decoder={status}, native={system_frames}, toolbar={len(positions)}")
     drift = max(positions) - min(positions)
     print(f"Visible history toolbar: {len(positions)} frames, first={positions[0]}, "
@@ -89,9 +95,13 @@ def main(video, preview=None):
     if not labelled or len(space_ink) - labelled[-1] < 3 or max(space_ink[-2:]) > 3:
         raise SystemExit(f"The space bar must first display the input mode name and then clear: {space_ink}")
     print(f"Space bar name visible in {len(labelled)} frames; final plain key ink counts: {space_ink[-2:]}")
-    if preview:
-        save_preview(video, first_visible_frame, preview)
+    return first_visible_frame
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:])
+    video, *previews = sys.argv[1:]
+    first_frame = inspect_recording(video, minimum_native_frames=2)
+    if previews:
+        destination, = previews
+        save_preview(video, first_frame, destination)
+        inspect_recording(destination, minimum_native_frames=0)
