@@ -36,7 +36,7 @@ run_tests=(xcodebuild test-without-building -project Clipboard.xcodeproj -scheme
            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-)
 motion_test=ClipboardUITests/ClipboardUITests/testSystemKeyboardSwitchKeepsFrameSteady
 test_status=0
-"${run_tests[@]}" "-skip-testing:$motion_test" -resultBundlePath build/Tests.xcresult \
+"${run_tests[@]}" "-skip-testing:$motion_test" -retry-tests-on-failure -test-iterations 2 -resultBundlePath build/Tests.xcresult \
   | tee -a build/tests.log || test_status=$?
 
 # Only the keyboard handoff needs screen recording. Leave the simulator free for

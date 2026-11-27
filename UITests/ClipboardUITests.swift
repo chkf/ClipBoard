@@ -146,20 +146,21 @@ final class ClipboardUITests: XCTestCase {
         let surface = owner.descendants(matching: .any).matching(NSPredicate(
             format: "identifier IN %@", ["keyboardSpace", "autoSwitch"])).firstMatch
         let controls = [surface, globe]
-        if owner == fixture, !waitForAny(controls, seconds: 3) {
-            func focusInput() {
-                let search = fixture.descendants(matching: .any).matching(identifier: "searchInput").firstMatch
-                if search.exists { search.tap() } else { fixture.textViews["input"].tap() }
-            }
-            focusInput()
-            if !waitForAny(controls, seconds: 8), !fixture.launchArguments.contains("-MeasureKeyboardSwitch") {
-                // A system paste alert can end the fixture's first editing session before any keyboard attaches.
-                fixture.launch()
-                focusInput()
-            }
+        func focusFixtureField() {
+            let search = fixture.descendants(matching: .any).matching(identifier: "searchInput").firstMatch
+            if search.exists { search.tap() } else { fixture.textViews["input"].tap() }
         }
+        if owner == fixture, !waitForAny(controls, seconds: 3) { focusFixtureField() }
+        var reopened = false
         for attempt in 0..<2 where !surface.exists && !entry.exists {
-            guard waitForAny(controls, seconds: 10) else { break }
+            if !waitForAny(controls, seconds: 8) {
+                // iOS can dismiss the editing session during the first globe handoff or paste alert.
+                guard owner == fixture, !reopened, !fixture.launchArguments.contains("-MeasureKeyboardSwitch") else { break }
+                reopened = true
+                fixture.launch()
+                focusFixtureField()
+                guard waitForAny(controls, seconds: 10) else { break }
+            }
             if surface.exists || entry.exists { break }
             if attempt == 0 {
                 globe.tap()
@@ -182,11 +183,30 @@ final class ClipboardUITests: XCTestCase {
         return found
     }
 
-    private func screenshot(_ title: String, in owner: XCUIApplication) {
-        let attachment = XCTAttachment(screenshot: owner.screenshot())
+    @discardableResult
+    private func screenshot(_ title: String, in owner: XCUIApplication) -> XCUIScreenshot {
+        // The paste alert lives in SpringBoard and dims the keyboard before the host's
+        // accessibility hierarchy reports any change. Check on both sides of the capture.
+        let deadline = Date().addingTimeInterval(15)
+        var clearSince = Date()
+        var shot: XCUIScreenshot?
+        repeat {
+            if allowPasteIfRequested() {
+                clearSince = Date()
+            } else if Date().timeIntervalSince(clearSince) >= 1.2 {
+                let candidate = owner.screenshot()
+                if !allowPasteIfRequested() { shot = candidate; break }
+                clearSince = Date()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        } while Date() < deadline
+        XCTAssertNotNil(shot, "The paste permission alert kept covering the keyboard")
+        let frame = shot ?? owner.screenshot()
+        let attachment = XCTAttachment(screenshot: frame)
         attachment.name = title
         attachment.lifetime = .keepAlways
         add(attachment)
+        return frame
     }
 
     private func historyKey(_ label: String, in owner: XCUIApplication, editing: Bool = false) -> XCUIElement {
@@ -254,11 +274,12 @@ final class ClipboardUITests: XCTestCase {
     func testKeyboardKeysManagementAndHistoryAcrossHosts() throws {
         enableKeyboard()
         fixture.launch()
-        copyInFixture("second")
         let input = fixture.textViews["input"]
         input.tap()
+        selectClipboard(in: fixture, expecting: fixture.buttons["keyboardSpace"])
+        copyInFixture("second")
         let short = historyKey("短句", in: fixture)
-        selectClipboard(in: fixture, expecting: short)
+        XCTAssertTrue(waitFor(short), fixture.debugDescription)
         let commandY = fixture.buttons["keyboardSpace"].frame.midY
         let firstKeyY = short.frame.minY
         screenshot("ClipboardShortKey", in: fixture)
@@ -280,8 +301,8 @@ final class ClipboardUITests: XCTestCase {
         copyInFixture("image")
         let picture = historyKey("图片", in: fixture)
         XCTAssertTrue(waitFor(picture, seconds: 30), fixture.debugDescription)
-        screenshot("ClipboardKeyboard", in: fixture)
-        let screen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+        let historyFrame = screenshot("ClipboardKeyboard", in: fixture)
+        let screen = try XCTUnwrap(KeyboardScreen(historyFrame, screen: fixture.frame))
         let footer = fixture.buttons["keyboardSpace"].frame
         let commands = ["clearHistory", "openSearch", "keyboardBackspace"]
         for (record, id) in zip([picture, historyKey(text, in: fixture), short], commands) {
@@ -385,8 +406,8 @@ final class ClipboardUITests: XCTestCase {
             let keyboard = fixture.keyboards.firstMatch
             XCTAssertTrue(keyboard.keys.matching(NSPredicate(format: "label ==[c] 'q'")).firstMatch.waitForExistence(timeout: 8))
             let nativeKey = try nativeReturn(name, translated, in: keyboard)
-            screenshot("NativeReturn" + name, in: fixture)
-            let nativeScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+            let nativeFrame = screenshot("NativeReturn" + name, in: fixture)
+            let nativeScreen = try XCTUnwrap(KeyboardScreen(nativeFrame, screen: fixture.frame))
             let nativeColor = nativeScreen.keycapColor(in: nativeKey.frame.insetBy(dx: 3, dy: 3))
 
             fixture.launchArguments = ["-ReturnKey", name]
@@ -395,8 +416,8 @@ final class ClipboardUITests: XCTestCase {
             let custom = fixture.buttons["keyboardReturn"]
             selectClipboard(in: fixture, expecting: custom)
             XCTAssertEqual(custom.label, translated)
-            screenshot("ClipboardReturn" + name, in: fixture)
-            let customScreen = try XCTUnwrap(KeyboardScreen(fixture.screenshot(), screen: fixture.frame))
+            let customFrame = screenshot("ClipboardReturn" + name, in: fixture)
+            let customScreen = try XCTUnwrap(KeyboardScreen(customFrame, screen: fixture.frame))
             let customColor = customScreen.keycapColor(in: custom.frame.insetBy(dx: 3, dy: 3))
             XCTAssertEqual(nativeColor.count, 3)
             XCTAssertEqual(customColor.count, 3)
