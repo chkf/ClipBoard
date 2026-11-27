@@ -1,5 +1,6 @@
 """Track the actual history toolbar in the composited simulator video, including its first frame."""
 import json
+from pathlib import Path
 import subprocess
 import sys
 
@@ -18,7 +19,17 @@ def space_bar_ink(frame, width, height):
     return ink
 
 
-def main(video):
+def save_preview(video, first_frame, destination):
+    frames = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "frame=best_effort_timestamp_time", "-of", "json", video]))["frames"]
+    start = float(frames[first_frame]["best_effort_timestamp_time"]) - float(frames[0]["best_effort_timestamp_time"])
+    Path(destination).parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(max(0, start - 0.5)), "-i", video, "-t", "3.5",
+                    "-an", "-vf", "scale=480:-2", "-c:v", "libx264", "-crf", "19", "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart", destination], check=True)
+
+
+def main(video, preview=None):
     info = subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "v:0",
                                     "-show_entries", "stream=width,height", "-of", "json", video])
     stream = json.loads(info)["streams"][0]
@@ -35,8 +46,11 @@ def main(video):
     positions = []
     space_ink = []
     system_frames = 0
+    first_visible_frame = None
+    frame_index = -1
     try:
         while frame := decoder.stdout.read(stride * height):
+            frame_index += 1
             if len(frame) != stride * height:
                 raise SystemExit("Incomplete simulator video frame")
             def magenta(index):
@@ -55,6 +69,8 @@ def main(video):
                 if blue >= 2:
                     rows.append(y)
             if 5 <= len(rows) <= 14 and rows[-1] - rows[0] <= 14:
+                if first_visible_frame is None:
+                    first_visible_frame = frame_index
                 positions.append((rows[0] + rows[-1]) / 2)
                 space_ink.append(space_bar_ink(frame, width, height))
             elif not positions:
@@ -73,7 +89,9 @@ def main(video):
     if not labelled or len(space_ink) - labelled[-1] < 3 or max(space_ink[-2:]) > 3:
         raise SystemExit(f"The space bar must first display the input mode name and then clear: {space_ink}")
     print(f"Space bar name visible in {len(labelled)} frames; final plain key ink counts: {space_ink[-2:]}")
+    if preview:
+        save_preview(video, first_visible_frame, preview)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(*sys.argv[1:])

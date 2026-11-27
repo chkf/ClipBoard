@@ -89,6 +89,9 @@ jobs:
               ditto -ck --keepParent "$result" "$result.zip"
             fi
           done
+      - name: Compare the painted keys in the exported search-field screenshots
+        if: always() && matrix.task != 'ipa'
+        run: python3 scripts/check-keyboard-appearance.py build/screenshots/Tests
       - uses: actions/upload-artifact@v4
         if: always() && matrix.task != 'ipa'
         with:

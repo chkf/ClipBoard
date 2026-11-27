@@ -55,5 +55,5 @@ trap stop_recording EXIT
 "${run_tests[@]}" "-only-testing:$motion_test" -resultBundlePath build/KeyboardMotion.xcresult \
   | tee -a build/tests.log || test_status=$?
 stop_recording
-python3 scripts/check-keyboard-motion.py build/keyboard-motion.mov | tee -a build/tests.log
+python3 scripts/check-keyboard-motion.py build/keyboard-motion.mov build/screenshots/KeyboardSwitch.mp4 | tee -a build/tests.log
 exit "$test_status"
