@@ -55,7 +55,7 @@ struct KeyboardScreen {
     }
 
     // Both keyboards have an uninterrupted space bar between the Emoji and Return keys.
-    // Its bottom edge gives a scan line away from the labels, independent of hit-region sizes.
+    // Scan near its top edge, above both the labels and the system's lower-right language indicator.
     func bottomRowSampleY() -> CGFloat? {
         let center = width * 42 / 100
         for y in stride(from: height - 1, through: height * 3 / 4, by: -1) {
@@ -66,8 +66,11 @@ struct KeyboardScreen {
             while right + 1 < width, matches(color, x: right + 1, y: y) { right += 1 }
             if (width / 5..<width / 3).contains(left),
                (width * 2 / 3..<width * 4 / 5).contains(right),
-               matches(color, x: width * 8 / 100, y: y) {
-                return CGFloat(y) / scale - 8
+               matches(color, x: width * 8 / 100, y: y),
+               matches(color, x: width * 35 / 100, y: y - 3) {
+                var top = y
+                while top > 0, matches(color, x: width * 35 / 100, y: top - 1) { top -= 1 }
+                return CGFloat(top) / scale + 8
             }
         }
         return nil
