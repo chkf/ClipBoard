@@ -55,7 +55,7 @@ final class ClipboardSession: ObservableObject {
             if resuming { verifiedStamp = nil }
             return
         }
-        let cutoff = Date().addingTimeInterval(-Double(settings.retention) * 86_400).timeIntervalSince1970
+        let cutoff = settings.cutoff(at: Date())
         let reuse = entryPhase == .history && category == ClipCategory.ordinary.id &&
             self.fullAccess == fullAccess && self.captureEnabled == captureEnabled &&
             rows.prefix(60).allSatisfy { $0.isPinned || $0.updated > cutoff }
@@ -243,8 +243,14 @@ final class ClipboardSession: ObservableObject {
     private func refresh(_ store: HistoryStore, cycle: UUID) async throws -> HistoryState {
         let list = listGeneration
         let limit = max(60, rows.count)
-        let (state, page) = try await store.categoryPage(since: revision, category: category, limit: limit)
-        guard generation == cycle, list == listGeneration, state.revision > revision, let page else { return state }
+        let now = Date()
+        // Time alone can age a row out of a read-only keyboard without a database revision.
+        let expired = category == ClipCategory.ordinary.id && rows.last.map {
+            !$0.isPinned && $0.updated <= settings.cutoff(at: now)
+        } == true
+        let (state, page) = try await store.categoryPage(since: expired ? -1 : revision, category: category, limit: limit, now: now)
+        guard generation == cycle, list == listGeneration, let page,
+              state.revision > revision || (expired && state.revision == revision) else { return state }
         pageEnd = page.rows.count < limit
         revision = state.revision
         var update = Transaction()
@@ -306,7 +312,7 @@ final class ClipboardSession: ObservableObject {
         paging = true
         defer { if generation == cycle, list == listGeneration { paging = false } }
         do {
-            let page = try await store.page(after: row, category: category)
+            let page = try await store.page(after: row, category: category, ordinaryCutoff: settings.cutoff(at: Date()))
             guard generation == cycle, list == listGeneration, revision == startingRevision, rows.last?.id == row.id else { return }
             rows.append(contentsOf: page)
             pageEnd = page.count < 60

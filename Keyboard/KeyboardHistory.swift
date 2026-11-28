@@ -271,6 +271,8 @@ struct KeyboardHistory: View {
                     Task { await session.edit { try await $0.retention(days) } }
                 })) { ForEach(HistorySettings.durations, id: \.self) { days in Text("\(days) 天").tag(days) } }
                     .pickerStyle(.segmented).accessibilityIdentifier("retentionDays").disabled(!session.fullAccess || !session.loaded)
+                Text("普通记录从最近一次复制起计时。置顶和已归类的记录长期保留。")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("插入后自动切换键盘", isOn: Binding(get: { session.settings.autoSwitch }, set: { enabled in
                     Task { await session.edit { try await $0.autoSwitch(enabled) } }
                 })).font(.subheadline).accessibilityIdentifier("autoSwitch").disabled(!session.fullAccess || !session.loaded)

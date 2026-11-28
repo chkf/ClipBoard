@@ -6,6 +6,7 @@ Clipboard users need to find saved items by category and recover accidental chan
 
 - Give the keyboard surface to a Pinyin-style category strip and full-width history rows. The disclosure expands the same categories inside the keyboard.
 - Keep swipe actions, keyboard feedback and the iOS input-mode switch. A hold on a category exposes session undo and the ordinary-history clear command.
+- Give ordinary unpinned history a three-day rolling retention option and make it the default on new installations.
 
 ## Capabilities
 

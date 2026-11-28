@@ -29,5 +29,8 @@ Both published IPA files matched their SHA-256 checksums and contained the Simpl
 ## 5. Candidate strip and full-width history
 
 - [x] 5.1 Apply the approved category typography, fixed chevron, wrapped selection and borderless full-width history. Move clear and undo to a category hold and preserve the system switch.
-- [ ] 5.2 Exercise the new surface, its gestures and its visible switch on both simulator configurations.
+- [x] 5.2 Exercise the new surface, its gestures and its visible switch on both simulator configurations.
 - [ ] 5.3 Publish and verify both 1.4.0 IPA downloads.
+- [ ] 5.4 Verify rolling 72-hour retention, expiry at the boundary, renewed copies, protected records and persistence of the retention selection.
+
+Both simulator configurations inserted the short record twice at its trailing edge. The candidate strip and first history record stayed visible throughout both measured keyboard handoffs. [Simulator evidence](https://github.com/chkf/ClipBoard/actions/runs/46131177866)

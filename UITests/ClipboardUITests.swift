@@ -476,6 +476,8 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [hapticsChanged], timeout: 5), .completed)
         let savedHaptics = haptics.value as? String
         app.buttons["7 天"].tap()
+        XCTAssertTrue(app.buttons["7 天"].wait(for: \.isSelected, toEqual: true, timeout: 5))
+        app.buttons["3 天"].tap()
         screenshot("ClipboardKeyboardSettings", in: app)
         app.buttons["finishTrial"].tap()
         app.terminate()
@@ -487,7 +489,7 @@ final class ClipboardUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, after)
         XCTAssertEqual(haptics.value as? String, savedHaptics)
         tapSwitch(haptics)
-        XCTAssertTrue(app.buttons["7 天"].isSelected)
+        XCTAssertTrue(app.buttons["3 天"].isSelected)
         app.buttons["finishTrial"].tap()
     }
 

@@ -45,3 +45,12 @@ The category strip SHALL use 20-point text at the standard text size, horizontal
 - **THEN** the last ordinary page stays visible while the keyboard reopens its store, and an early tap inserts the current stored text once
 - **AND** the first read after a cold start shows the actual categories and rows together, with the system switch available independently if storage is slow
 - **AND** a background transition or access change clears the retained presentation before another host or permission scope can use it
+
+### Requirement: Retain recently copied ordinary records
+
+New installations SHALL default to a rolling three-day window for ordinary unpinned history. The settings SHALL offer 3, 7, 15, 30 and 90 days. A new copy of the same content restarts the interval.
+
+#### Scenario: Reach the three-day boundary
+- **WHEN** a record's last effective copy reaches 72 hours in three-day mode
+- **THEN** ordinary unpinned text and images disappear from the keyboard, including when its database is read-only
+- **AND** the next writable cleanup deletes expired records, originals and thumbnails, and preserves pinned and filed items
