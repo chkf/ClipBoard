@@ -227,11 +227,17 @@ final class ClipboardUITests: XCTestCase {
 
     private func nativeTop(for control: XCUIElement, in owner: XCUIApplication) -> CGFloat? {
         guard control.frame.midY < owner.frame.midY else { return nil }
-        let containers = owner.otherElements.containing(.button, identifier: "expandCategories").allElementsBoundByIndex
-        return containers.map(\.frame).filter {
-            $0.minY > owner.frame.midY && abs($0.width - owner.frame.width) < 3 &&
-            $0.maxY < owner.frame.maxY - 10 && $0.height > 140
-        }.min { $0.height < $1.height }?.minY
+        let target = control.identifier.isEmpty ? control.label : control.identifier
+        let containers = owner.otherElements.containing(.button, identifier: target).allElementsBoundByIndex
+        let screen: CGRect = owner.frame
+        var panel: CGRect?
+        for container in containers {
+            let frame: CGRect = container.frame
+            guard frame.minY > screen.midY, abs(frame.width - screen.width) < 3,
+                  frame.maxY < screen.maxY - 10, frame.height > 140 else { continue }
+            if frame.height < (panel?.height ?? CGFloat.greatestFiniteMagnitude) { panel = frame }
+        }
+        return panel?.minY
     }
 
     private func keyboardCoordinate(for control: XCUIElement, in owner: XCUIApplication) -> XCUICoordinate? {
@@ -490,7 +496,7 @@ final class ClipboardUITests: XCTestCase {
         app.activate()
         app.buttons["manageCategories"].tap()
         app.buttons["addCategory"].tap()
-        let name = "Trip-" + String(UUID().uuidString.prefix(5))
+        let name = "Weekend travel plans and reading suggestions " + String(UUID().uuidString.prefix(5))
         let field = app.textFields["categoryName"]
         field.tap(); field.typeText(name)
         app.buttons["saveCategory"].tap()
@@ -507,10 +513,22 @@ final class ClipboardUITests: XCTestCase {
         fixture.launch()
         fixture.textViews["input"].tap()
         selectClipboard(in: fixture, expecting: fixture.buttons["expandCategories"])
+        let arrow = fixture.buttons["expandCategories"]
+        let collapsedFrame = arrow.frame
+        tapKeyboard(arrow, in: fixture)
+        let choices = fixture.buttons.matching(NSPredicate(format: "label == %@ AND identifier BEGINSWITH 'folder-'", name))
+        let choice = choices.firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 8), fixture.debugDescription)
+        XCTAssertEqual(choices.count, 1)
+        XCTAssertGreaterThan(choice.frame.midY, fixture.buttons["folder-ordinary"].frame.midY + 20)
+        XCTAssertEqual(arrow.frame, collapsedFrame)
+        screenshot("ClipboardWrappedCategories", in: fixture)
+        tapKeyboard(choice, in: fixture)
         let tab = fixture.buttons.matching(NSPredicate(format: "label == %@ AND identifier BEGINSWITH 'tab-'", name)).firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 8), fixture.debugDescription)
-        tapKeyboard(fixture.buttons["expandCategories"], in: fixture)
-        XCTAssertTrue(fixture.buttons.matching(NSPredicate(format: "label == %@ AND identifier BEGINSWITH 'folder-'", name)).firstMatch.waitForExistence(timeout: 8), fixture.debugDescription)
+        XCTAssertTrue(tab.isSelected)
+        XCTAssertTrue(choice.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(arrow.frame, collapsedFrame)
     }
 
     func testGlobeHandsTheActiveFieldBackToAnInstalledKeyboard() {

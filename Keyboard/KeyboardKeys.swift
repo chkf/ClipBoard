@@ -61,12 +61,15 @@ struct CategoryButton: UIViewRepresentable {
         button.accessibilityIdentifier = (expanded ? "folder-" : "tab-") + (category.id.isEmpty ? "ordinary" : category.id)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
-        guard let label = uiView.titleLabel else { return nil }
+        let title = category.name as NSString
+        let font = UIFont.systemFont(ofSize: fontSize, weight: selected ? .medium : .regular)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
         let limit = max(1, min(maximumWidth, proposal.width ?? maximumWidth))
-        let natural = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
-        let width = min(limit, max(44, ceil(natural.width) + 18))
-        let text = label.sizeThatFits(CGSize(width: max(1, width - 18), height: CGFloat.greatestFiniteMagnitude))
-        return CGSize(width: width, height: expanded ? max(height, ceil(text.height) + 6) : height)
+        let width = min(limit, max(44, ceil(title.size(withAttributes: attributes).width) + 18))
+        guard expanded else { return CGSize(width: width, height: height) }
+        let text = title.boundingRect(with: CGSize(width: max(1, width - 18), height: .greatestFiniteMagnitude),
+                                      options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attributes, context: nil)
+        return CGSize(width: width, height: max(height, ceil(text.height) + 6))
     }
 }
 
