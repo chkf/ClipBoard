@@ -17,6 +17,7 @@ The keyboard SHALL open to ordinary history and present all categories in a scro
 - **WHEN** the user manages categories in the containing app
 - **THEN** they can create, rename and remove them, with removed memberships returning to ordinary history
 - **AND** the keyboard uses the system input-mode switch for Apple keyboards and emoji without presenting custom number or emoji pages
+- **AND** the extension declares Simplified Chinese as its primary language so iOS can localize its language subtitle, and the containing app recognizes the previous neutral input-mode identifier during upgrades
 
 ### Requirement: Undo while the keyboard is open
 

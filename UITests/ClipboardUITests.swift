@@ -137,12 +137,16 @@ final class ClipboardUITests: XCTestCase {
         Self.configuredKeyboard = true
     }
 
+    private func systemSwitchKey(in owner: XCUIApplication) -> XCUIElement {
+        let globeLabels = ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "下一个键盘", "切换键盘"]
+        return owner.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
+            globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
+    }
+
     @discardableResult
     private func selectClipboard(in owner: XCUIApplication, expecting entry: XCUIElement) -> Bool {
         if waitFor(entry, seconds: 3) { return true }
-        let globeLabels = ["Next keyboard", "Show next keyboard", "Change Keyboard", "Switch Keyboard", "下一个键盘", "切换键盘"]
-        let globe = owner.buttons.matching(NSPredicate(format: "label IN[c] %@ OR identifier IN %@",
-            globeLabels, ["NextKeyboard", "InputModeSwitchKey"])).firstMatch
+        let globe = systemSwitchKey(in: owner)
         let surface = owner.descendants(matching: .any).matching(NSPredicate(
             format: "identifier IN %@", ["keyboardSpace", "autoSwitch"])).firstMatch
         let controls = [surface, globe]
@@ -496,6 +500,9 @@ final class ClipboardUITests: XCTestCase {
         input.tap()
         let space = fixture.buttons["keyboardSpace"]
         selectClipboard(in: fixture, expecting: space)
+        let chineseInput = fixture.textViews.matching(identifier: "input")
+            .matching(NSPredicate(format: "label BEGINSWITH[c] 'zh'")).firstMatch
+        XCTAssertTrue(chineseInput.waitForExistence(timeout: 8), fixture.debugDescription)
         fixture.buttons["nextKeyboard"].tap()
         XCTAssertTrue(space.waitForNonExistence(timeout: 8), fixture.debugDescription)
         let native = fixture.keyboards.firstMatch
@@ -525,6 +532,13 @@ final class ClipboardUITests: XCTestCase {
             format: "label IN[c] %@ OR placeholderValue IN[c] %@", ["Search Emoji","搜索表情符号"], ["Search Emoji","搜索表情符号"])).firstMatch
         XCTAssertTrue(waitForAny([emojiMode, emojiSearch], seconds: 8), fixture.debugDescription)
         screenshot("InstalledEmojiKeyboard", in: fixture)
+        let globe = systemSwitchKey(in: fixture)
+        XCTAssertTrue(globe.waitForExistence(timeout: 5), fixture.debugDescription)
+        globe.press(forDuration: 1.0)
+        let menu = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        menu.name = "ClipboardLanguageMenu"
+        menu.lifetime = .keepAlways
+        add(menu)
     }
 
     func testHoldSpaceMovesHostCursorWithoutInsertingSpace() {
