@@ -135,7 +135,7 @@ struct KeyboardHistory: View {
                     .font(.subheadline.weight(.medium)).multilineTextAlignment(.center)
                 HStack(spacing: 18) {
                     Button("取消") { panel = .history }.foregroundStyle(.primary).accessibilityIdentifier("cancelClear")
-                    Button("清空") { feedback(); session.perform(.clearOrdinary); panel = .history }
+                    Button("清空") { feedback(); clearOrdinary() }
                         .foregroundStyle(Color(uiColor: .systemBlue)).accessibilityIdentifier("confirmClear")
                 }.buttonStyle(.plain).font(.body.weight(.medium)).controlSize(.large)
             }
@@ -182,15 +182,22 @@ struct KeyboardHistory: View {
         if session.fullAccess && session.ordinaryCount > 0 { panel = .clear }
     }
 
+    private func clearOrdinary() {
+        guard session.fullAccess, session.ordinaryCount > 0 else { return }
+        session.perform(.clearOrdinary)
+        panel = .history
+    }
+
     private func commands(_ layout: KeyboardLayout) -> some View {
         VStack(spacing: layout.rowGap) {
-            KeyboardKey(label: "清空普通记录", id: "clearHistory", symbol: "trash", action: requestClear)
+            KeyboardHoldKey("清空普通记录", id: "clearHistory", symbol: "trash", holdLabel: "直接清空普通未置顶记录",
+                            tap: requestClear, hold: clearOrdinary)
                 .disabled(!session.fullAccess || session.ordinaryCount == 0).frame(height: layout.keyHeight)
             KeyboardKey(label: "撤销", id: "undoHistory", symbol: "arrow.uturn.backward",
                         foreground: session.undoAvailable ? .primary : .secondary) { session.undo(); panel = .history }
                 .disabled(!session.fullAccess || !session.undoAvailable || panel == .clear).frame(height: layout.keyHeight)
-            KeyboardHoldKey("退格", id: "keyboardBackspace", symbol: "delete.left", holdLabel: "清空普通记录",
-                            tap: erase, hold: requestClear).frame(height: layout.keyHeight)
+            KeyboardHoldKey("退格", id: "keyboardBackspace", symbol: "delete.left",
+                            tap: erase, hold: erase, repeatsOnHold: true).frame(height: layout.keyHeight)
         }
     }
 

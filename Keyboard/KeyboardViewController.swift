@@ -61,7 +61,11 @@ final class KeyboardViewController: UIInputViewController {
                 }
             },
             insert: { [weak self] text in self?.textDocumentProxy.insertText(text); self?.updateTraits() },
-            erase: { [weak self] in self?.textDocumentProxy.deleteBackward(); self?.updateTraits() },
+            erase: { [weak self] in
+                guard let self, self.visible, self.session.active else { return }
+                self.textDocumentProxy.deleteBackward()
+                self.updateTraits()
+            },
             moveCursor: { [weak self] offset in self?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) },
             applyCategory: { [weak self] request in self?.applyCategory(request) },
             adjustHeight: { [weak self] delta in self?.adjustHeight(delta) },

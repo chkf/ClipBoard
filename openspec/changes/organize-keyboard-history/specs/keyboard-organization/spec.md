@@ -27,8 +27,9 @@ The middle command SHALL undo filing, pin changes, individual deletion and clear
 - **THEN** the first tap restores the record in the destination and the second returns it to its original category
 
 #### Scenario: Clear ordinary history
-- **WHEN** the user activates clear or holds backspace and confirms the centered prompt
+- **WHEN** the user taps the trash key and confirms the centered prompt, or holds the trash key to clear directly
 - **THEN** one undo can recover the entire affected batch, and categorized or pinned entries retain their content
+- **AND** holding backspace repeatedly deletes text before the host cursor and leaves the clipboard history intact
 
 ### Requirement: Keep input gestures and keyboard layout
 

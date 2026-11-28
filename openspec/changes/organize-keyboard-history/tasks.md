@@ -18,4 +18,5 @@ The [release workflow](https://github.com/chkf/ClipBoard/actions/runs/4604889675
 ## 4. Switching back to ordinary history
 
 - [x] 4.1 Preserve the ordinary page during a switch, settle a cold first read together, and keep the system input keys available during slow storage.
-- [ ] 4.2 Check the first painted record and session boundaries in both signing modes, and verify the v1.3.1 installable release.
+- [x] 4.2 Bind one-step undoable bulk clear to a trash-key hold, keep tap confirmation, and repeat backspace in the host field.
+- [ ] 4.3 Check the first painted record, trash and backspace gestures, and session boundaries in both signing modes, and verify the v1.3.1 installable release.
