@@ -4,14 +4,14 @@ struct ClipLabel: View {
     let row: ClipRow
     let session: ClipboardSession
     let keyHeight: CGFloat
-    @State private var thumbnail: UIImage?
+    @State private var thumbnail: (id: String, image: UIImage)?
 
     var body: some View {
         HStack(spacing: 0) {
             if row.isImage {
                 Group {
-                    if let thumbnail {
-                        Image(uiImage: thumbnail).resizable().scaledToFit()
+                    if let thumbnail, thumbnail.id == row.id {
+                        Image(uiImage: thumbnail.image).resizable().scaledToFit()
                     } else {
                         Image(systemName: "photo").foregroundStyle(.secondary)
                     }
@@ -19,9 +19,9 @@ struct ClipLabel: View {
                 .frame(height: min(42, keyHeight - 4), alignment: .leading)
                 .accessibilityLabel("图片")
                 .task(id: row.id) {
-                    thumbnail = nil
-                    guard let bytes = try? await session.store?.thumbnail(row.id), !Task.isCancelled else { return }
-                    thumbnail = UIImage(data: bytes)
+                    guard thumbnail?.id != row.id, let bytes = await session.thumbnail(row.id),
+                          !Task.isCancelled, let image = UIImage(data: bytes) else { return }
+                    thumbnail = (row.id, image)
                 }
             } else {
                 Text(verbatim: row.preview)

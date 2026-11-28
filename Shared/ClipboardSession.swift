@@ -1,11 +1,17 @@
 import SwiftUI
 import UIKit
 
+enum KeyboardEntryPhase: Equatable {
+    case preparing, inputOnly, history, unavailable
+}
+
 @MainActor
 final class ClipboardSession: ObservableObject {
     @Published private(set) var rows: [ClipRow] = []
     @Published private(set) var settings = HistorySettings()
     @Published private(set) var loaded = false
+    @Published private(set) var entryPhase = KeyboardEntryPhase.preparing
+    @Published private(set) var checkingInitialPasteboard = false
     @Published private(set) var copied = 0
     @Published private(set) var message: String?
     @Published private(set) var fullAccess = false
@@ -17,6 +23,9 @@ final class ClipboardSession: ObservableObject {
     private let keyboardAccess: (() -> Bool)?
     private let open: (Bool) async throws -> HistoryStore
     private var monitor: Task<Void, Never>?
+    private var firstRead: Task<Void, Never>?
+    private var revealInput: Task<Void, Never>?
+    private var undoCleanup: Task<Void, Never>?
     private var capture: Task<Void, Never>?
     private var captureStamp: PasteStamp?
     private var notification: NSObjectProtocol?
@@ -26,6 +35,7 @@ final class ClipboardSession: ObservableObject {
     private var failedAttempts = 0
     private var retryAfter = Date.distantPast
     private var verifiedStamp: PasteStamp?
+    private var inspectedStamp: PasteStamp?
     private var revision = -1
     private var pageEnd = false
     private var paging = false
@@ -42,15 +52,37 @@ final class ClipboardSession: ObservableObject {
 
     func start(fullAccess: Bool, captureEnabled: Bool = true) {
         let resuming = !active
-        active = true
         if monitor != nil, fullAccess == self.fullAccess, captureEnabled == self.captureEnabled {
+            active = true
             if resuming { verifiedStamp = nil }
             return
         }
-        stop()
+        let cutoff = Date().addingTimeInterval(-Double(settings.retention) * 86_400).timeIntervalSince1970
+        let reuse = entryPhase == .history && category == ClipCategory.ordinary.id &&
+            self.fullAccess == fullAccess && self.captureEnabled == captureEnabled &&
+            rows.prefix(60).allSatisfy { $0.isPinned || $0.updated > cutoff }
+        suspendForSwitch()
+        if reuse {
+            if rows.count > 60 { rows = Array(rows.prefix(60)) }
+        } else {
+            clearPresentation()
+        }
+        active = true
         self.fullAccess = fullAccess
         self.captureEnabled = captureEnabled
+        checkingInitialPasteboard = fullAccess && captureEnabled && (!reuse || inspectedStamp != SystemPasteboard.stamp)
+        loaded = false
+        undoAvailable = false
+        message = nil
         let generation = self.generation
+        if !reuse {
+            // A contended or protected database must not hold up the input keys.
+            revealInput = Task { [weak self] in
+                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+                guard let self, self.generation == generation, self.entryPhase == .preparing else { return }
+                self.entryPhase = .inputOnly
+            }
+        }
         if captureEnabled {
             notification = NotificationCenter.default.addObserver(forName: UIPasteboard.changedNotification,
                                                                object: nil, queue: .main) { [weak self] _ in
@@ -63,21 +95,33 @@ final class ClipboardSession: ObservableObject {
                 }
             }
         }
+        let initial = Task { [weak self] in
+            guard let self else { return }
+            await self.tick(generation)
+        }
+        firstRead = initial
         monitor = Task { [weak self] in
+            await initial.value
             while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 await self?.tick(generation)
-                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
 
-    func stop() {
-        fullAccess = false
+    // UIKit may still be compositing the outgoing keyboard. End the session now
+    // and leave its last presentation intact until the next host is known.
+    func suspendForSwitch() {
+        active = false
         monitor?.cancel()
+        firstRead?.cancel()
+        revealInput?.cancel()
         capture?.cancel()
         if let notification { NotificationCenter.default.removeObserver(notification) }
         notification = nil
         monitor = nil
+        firstRead = nil
+        revealInput = nil
         capture = nil
         captureStamp = nil
         generation = UUID()
@@ -85,23 +129,49 @@ final class ClipboardSession: ObservableObject {
         failedAttempts = 0
         verifiedStamp = nil
         revision = -1
-        pendingEdit?.cancel()
+        let edit = pendingEdit
+        edit?.cancel()
         pendingEdit = nil
-        if let store { Task { try? await store.discardUndo() } }
+        if let store {
+            undoCleanup = Task { await edit?.value; try? await store.discardUndo() }
+        }
+        listGeneration = UUID()
+        store = nil
+        paging = false
+        pageEnd = false
+    }
+
+    func stop() {
+        suspendForSwitch()
+        clearPresentation()
+        fullAccess = false
+    }
+
+    func finishDisappearance() {
+        guard !active else { return }
+        if category != ClipCategory.ordinary.id || entryPhase != .history {
+            clearPresentation()
+        } else if rows.count > 60 {
+            rows = Array(rows.prefix(60))
+        }
+    }
+
+    private func clearPresentation() {
+        entryPhase = .preparing
         category = ClipCategory.ordinary.id
         categories = [.ordinary]
         undoAvailable = false
         ordinaryCount = 0
-        listGeneration = UUID()
         lastPrune = .distantPast
-        store = nil
         loaded = false
         rows = []
         message = nil
-        paging = false
+        inspectedStamp = nil
+        checkingInitialPasteboard = false
     }
 
     private func tick(_ cycle: UUID) async {
+        await undoCleanup?.value
         guard generation == cycle, active else { return }
         if let current = keyboardAccess?(), current != fullAccess {
             start(fullAccess: current, captureEnabled: captureEnabled)
@@ -136,6 +206,8 @@ final class ClipboardSession: ObservableObject {
                 guard let self else { return }
                 defer {
                     if self.generation == cycle, self.captureStamp == stamp {
+                        self.inspectedStamp = stamp
+                        if self.checkingInitialPasteboard { self.checkingInitialPasteboard = false }
                         self.capture = nil
                         self.captureStamp = nil
                     }
@@ -170,32 +242,54 @@ final class ClipboardSession: ObservableObject {
                 }
             }
         } catch {
-            if generation == cycle, fullAccess { message = error.localizedDescription }
+            guard generation == cycle, active else { return }
+            if !loaded {
+                clearPresentation()
+                entryPhase = .unavailable
+            }
+            if fullAccess { message = error.localizedDescription }
         }
     }
 
     @discardableResult
     private func refresh(_ store: HistoryStore, cycle: UUID) async throws -> HistoryState {
         let list = listGeneration
-        let state = try await store.state()
-        guard generation == cycle, list == listGeneration, state.revision > revision else { return state }
         let limit = max(60, rows.count)
-        let groups = try await store.categories()
-        let selected = groups.contains(where: { $0.id == category }) ? category : ClipCategory.ordinary.id
-        let page = try await store.page(limit: limit, category: selected)
-        let depth = try await store.undoDepth()
-        let count = try await store.ordinaryUnpinnedCount()
-        guard generation == cycle, list == listGeneration, state.revision > revision else { return state }
-        categories = groups
-        category = selected
-        undoAvailable = depth > 0
-        ordinaryCount = count
-        settings = state.settings
-        rows = page
-        pageEnd = page.count < limit
+        let (state, page) = try await store.categoryPage(since: revision, category: category, limit: limit)
+        guard generation == cycle, list == listGeneration, state.revision > revision, let page else { return state }
+        pageEnd = page.rows.count < limit
         revision = state.revision
-        loaded = true
+        var update = Transaction()
+        update.disablesAnimations = true
+        withTransaction(update) {
+            if categories != page.categories { categories = page.categories }
+            if category != page.selected { category = page.selected }
+            if undoAvailable != page.canUndo { undoAvailable = page.canUndo }
+            if ordinaryCount != page.ordinaryCount { ordinaryCount = page.ordinaryCount }
+            if settings != state.settings { settings = state.settings }
+            if rows != page.rows { rows = page.rows }
+            if entryPhase == .unavailable { message = nil }
+            if !loaded { loaded = true }
+            if entryPhase != .history { entryPhase = .history }
+        }
+        revealInput?.cancel()
         return state
+    }
+
+    // A tap on a retained preview waits for the new session's connection. Read
+    // bodies from that connection, and abandon the tap if the keyboard changes.
+    private func readyStore(_ cycle: UUID) async -> HistoryStore? {
+        guard generation == cycle, active else { return nil }
+        if !loaded { await firstRead?.value }
+        guard generation == cycle, active else { return nil }
+        return store
+    }
+
+    func thumbnail(_ id: String) async -> Data? {
+        let cycle = generation
+        guard let store = await readyStore(cycle) else { return nil }
+        let data = try? await store.thumbnail(id)
+        return generation == cycle && active ? data : nil
     }
 
     func selectCategory(_ id: String) {
@@ -203,22 +297,25 @@ final class ClipboardSession: ObservableObject {
         listGeneration = UUID()
         category = id
         rows = []
+        entryPhase = .inputOnly
         paging = false
         pageEnd = false
         revision = -1
         loaded = false
         let cycle = generation
-        if let store {
-            Task {
-                do { _ = try await refresh(store, cycle: cycle) }
-                catch { if generation == cycle { message = error.localizedDescription } }
-            }
+        Task {
+            guard let store = await readyStore(cycle) else { return }
+            do { _ = try await refresh(store, cycle: cycle) }
+            catch { if generation == cycle { message = error.localizedDescription } }
         }
     }
 
     func nextPage(after row: ClipRow) async {
-        guard row.id == rows.last?.id, !pageEnd, !paging, let store else { return }
-        let cycle = generation, list = listGeneration, startingRevision = revision
+        guard row.id == rows.last?.id, !pageEnd, !paging else { return }
+        let cycle = generation, list = listGeneration
+        guard let store = await readyStore(cycle), list == listGeneration,
+              row.id == rows.last?.id, !pageEnd, !paging else { return }
+        let startingRevision = revision
         paging = true
         defer { if generation == cycle, list == listGeneration { paging = false } }
         do {
@@ -231,8 +328,9 @@ final class ClipboardSession: ObservableObject {
 
     @discardableResult
     func copy(_ row: ClipRow) async -> Bool {
-        guard fullAccess, keyboardAccess?() != false, let store else { return false }
         let cycle = generation
+        guard fullAccess, keyboardAccess?() != false, let store = await readyStore(cycle),
+              keyboardAccess?() != false else { return false }
         do {
             try await store.copy(row.id) { try SystemPasteboard.write($0) }
             guard generation == cycle else { return false }
@@ -240,23 +338,23 @@ final class ClipboardSession: ObservableObject {
             copied += 1
             try await refresh(store, cycle: cycle)
             return true
-        } catch { message = error.localizedDescription; return false }
+        } catch { if generation == cycle { message = error.localizedDescription }; return false }
     }
 
     func selectInKeyboard(_ row: ClipRow, insert: (String) -> Void, advance: () -> Void) async {
-        guard let store else { return }
         if row.isImage {
             if await copy(row) { UIAccessibility.post(notification: .announcement, argument: "图片已复制") }
             return
         }
         let cycle = generation
+        guard let store = await readyStore(cycle) else { return }
         do {
             let body = try await store.body(row.id)
             let state = try await store.state()
-            guard generation == cycle, let text = body.text else { return }
+            guard generation == cycle, active, let text = body.text else { return }
             insert(text)
             if state.settings.autoSwitch { advance() }
-        } catch { message = error.localizedDescription }
+        } catch { if generation == cycle { message = error.localizedDescription } }
     }
 
     func edit(_ change: (HistoryStore) async throws -> Void) async {
@@ -270,12 +368,13 @@ final class ClipboardSession: ObservableObject {
 
     // Enqueue taps in delivery order (including Undo). A hidden keyboard abandons queued work.
     func enqueue(_ change: @escaping (HistoryStore) async throws -> Void) {
-        guard active, fullAccess, keyboardAccess?() != false, let store else { return }
+        guard active, fullAccess, keyboardAccess?() != false else { return }
         let cycle = generation
         let previous = pendingEdit
         pendingEdit = Task {
             await previous?.value
-            guard !Task.isCancelled, generation == cycle, active, keyboardAccess?() != false else { return }
+            guard !Task.isCancelled, let store = await readyStore(cycle), !Task.isCancelled,
+                  keyboardAccess?() != false else { return }
             do {
                 try await change(store)
                 guard generation == cycle else { return }

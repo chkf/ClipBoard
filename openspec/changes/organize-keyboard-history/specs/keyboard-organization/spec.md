@@ -37,3 +37,9 @@ The keyboard SHALL retain whole-key hit targets, stable input rows and the host 
 #### Scenario: Settle the space bar
 - **WHEN** the keyboard has completed its entry transition
 - **THEN** the centered name is replaced by a small identifier in the lower-right corner
+
+#### Scenario: Switch back to saved history
+- **WHEN** the user switches away and back to ordinary history in the same foreground app with the same access
+- **THEN** the last ordinary page stays visible while the keyboard reopens its store, and an early tap inserts the current stored text once
+- **AND** the first read after a cold start shows the actual categories and rows together, with input keys available independently if storage is slow
+- **AND** a background transition or access change clears the retained presentation before another host or permission scope can use it

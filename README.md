@@ -35,7 +35,7 @@ iOS 26 及以上版本的本地剪贴板键盘。在输入框里切到 Clipboard
 ```sh
 xcodegen generate
 bash scripts/test-ios.sh
-bash scripts/package-ipa.sh 1.3.0
+bash scripts/package-ipa.sh 1.3.1
 ```
 
 真机 IPA 和 SHA-256 校验文件位于 `build/release/`。GitHub Actions 会在无共享组和有共享组的模拟器上测试真实键盘、主 App 和独立宿主，验证两个包中主 App 与扩展的签名。从 main 手动运行 iOS 工作流并勾选 publish 即可在检查通过后发布。

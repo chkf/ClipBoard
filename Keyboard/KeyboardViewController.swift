@@ -200,12 +200,20 @@ final class KeyboardViewController: UIInputViewController {
         visible = false
         spaceNameTimeout?.cancel()
         spaceNameTimeout = nil
-        presentation.showsInputModeName = false
-        session.active = false
-        session.stop()
+        session.suspendForSwitch()
+        super.viewWillDisappear(animated)
+    }
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard !visible else { return }
+        session.finishDisappearance()
         presentation.appearanceID = UUID()
         presentation.categoryRequest = nil
-        super.viewWillDisappear(animated)
+        presentation.settings = false
+    }
+    override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        if !visible { session.stop() }
     }
     @objc private func hostActive() {
         guard visible else { return }

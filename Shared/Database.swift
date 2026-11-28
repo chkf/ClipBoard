@@ -111,8 +111,8 @@ final class Database {
         return Int(sqlite3_changes(handle))
     }
 
-    func transaction<T>(_ work: () throws -> T) throws -> T {
-        try execute("BEGIN IMMEDIATE")
+    func transaction<T>(readOnly: Bool = false, _ work: () throws -> T) throws -> T {
+        try execute(readOnly ? "BEGIN DEFERRED" : "BEGIN IMMEDIATE")
         do {
             let value = try work()
             try execute("COMMIT")

@@ -16,6 +16,27 @@ enum CategoryError: LocalizedError {
 }
 
 extension HistoryStore {
+    struct CategoryPage {
+        let categories: [ClipCategory]
+        let selected: String
+        let rows: [ClipRow]
+        let canUndo: Bool
+        let ordinaryCount: Int
+    }
+
+    func categoryPage(since revision: Int, category: String, limit: Int) throws -> (HistoryState, CategoryPage?) {
+        try db.transaction(readOnly: true) {
+            let state = try self.state()
+            guard state.revision > revision else { return (state, nil) }
+            let groups = try categories()
+            let selected = groups.contains { $0.id == category } ? category : ClipCategory.ordinary.id
+            let snapshot = try CategoryPage(categories: groups, selected: selected,
+                                           rows: page(limit: limit, category: selected),
+                                           canUndo: undoDepth() > 0, ordinaryCount: ordinaryUnpinnedCount())
+            return (state, snapshot)
+        }
+    }
+
     func categories() throws -> [ClipCategory] {
         guard supportsCategories else { return [.ordinary] }
         return [.ordinary] + (try db.query("SELECT id,name FROM categories ORDER BY rowid") {

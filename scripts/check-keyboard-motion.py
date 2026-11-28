@@ -1,4 +1,4 @@
-"""Track the actual history toolbar in the composited simulator video, including its first frame."""
+"""Track keyboard controls and the seeded history row in the composited switch recording."""
 import json
 from itertools import groupby
 from pathlib import Path
@@ -51,6 +51,23 @@ def command_key_position(frame, width, height):
     return None
 
 
+def first_history_row_visible(frame, width, position):
+    # The fixture has already saved 短句. Its key face and left-aligned text should
+    # be painted together with the command keys, including on their first frame.
+    middle = round(position)
+    gap_x, face_x = round(width * .855), round(width * .60)
+    text_start, text_end = round(width * .035), round(width * .21)
+    ink_lines = 0
+    for y in range(middle - 5, middle + 6):
+        start = y * width * 3
+        face = frame[start + face_x * 3]
+        if face - frame[start + gap_x * 3] < 12:
+            continue
+        if sum(abs(pixel - face) >= 25 for pixel in frame[start + text_start * 3:start + text_end * 3:3]) >= 2:
+            ink_lines += 1
+    return ink_lines >= 3
+
+
 def save_preview(video, first_frame, destination):
     frames = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "v:0",
         "-show_entries", "frame=best_effort_timestamp_time", "-of", "json", video]))["frames"]
@@ -83,6 +100,8 @@ def inspect_recording(video, minimum_native_frames):
     stride = width * 3
     positions = []
     space_ink = []
+    missing_rows = []
+    missing_controls = 0
     system_frames = 0
     first_visible_frame = None
     frame_index = -1
@@ -101,10 +120,16 @@ def inspect_recording(video, minimum_native_frames):
             if position is not None:
                 if first_visible_frame is None:
                     first_visible_frame = frame_index
+                elif missing_controls:
+                    raise SystemExit(f"The visible keyboard disappeared for {missing_controls} marked frames before frame {frame_index}")
+                if not first_history_row_visible(frame, width, position):
+                    missing_rows.append(frame_index)
                 positions.append(position)
                 space_ink.append(space_bar_ink(frame, width, height))
             elif not positions:
                 system_frames += 1
+            else:
+                missing_controls += 1
     finally:
         decoder.stdout.close()
         status = decoder.wait()
@@ -115,6 +140,9 @@ def inspect_recording(video, minimum_native_frames):
           f"last={positions[-1]}, max movement={drift} sampled pixels", flush=True)
     if drift > 2:
         raise SystemExit("The visible keyboard controls moved by more than four points during the handoff")
+    if missing_rows:
+        raise SystemExit(f"The first history row was blank while the command keys were visible on frames {missing_rows[:20]}")
+    print(f"First history row visible on all {len(positions)} command-key frames", flush=True)
     labelled = [i for i, ink in enumerate(space_ink) if ink >= 12]
     if not labelled or len(space_ink) - labelled[-1] < 3 or max(space_ink[-2:]) > 3:
         raise SystemExit(f"The space bar must first display the input mode name and then clear: {space_ink}")

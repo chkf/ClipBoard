@@ -18,6 +18,9 @@ struct KeyboardHistory: View {
     @AppStorage(KeyboardPresentation.hapticsPreference) private var hapticsEnabled = true
     @Environment(\.keyboardFeedback) private var feedback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var showsContent: Bool {
+        presentation.settings || presentation.categoryRequest != nil || session.entryPhase != .preparing
+    }
 
     var body: some View {
         GeometryReader { bounds in
@@ -58,6 +61,8 @@ struct KeyboardHistory: View {
                     footer(layout).frame(height: layout.keyHeight).padding(.top, layout.rowGap)
                 }
             }.padding(.horizontal, layout.sideInset).padding(.bottom, layout.bottomInset)
+                .opacity(showsContent ? 1 : 0)
+                .allowsHitTesting(showsContent).accessibilityHidden(!showsContent)
         }
         .onChange(of: presentation.appearanceID) { _, _ in panel = .history }
         .onChange(of: session.fullAccess) { _, access in if !access { panel = .history } }
@@ -112,11 +117,16 @@ struct KeyboardHistory: View {
     @ViewBuilder private func content(_ layout: KeyboardLayout) -> some View {
         switch panel {
         case .history:
-            if session.rows.isEmpty {
-                if let message = session.message { note(message) }
-                else if !session.fullAccess { note("打开「允许完全访问」可记录新内容。") }
-                else if session.loaded { note("暂无历史记录") }
-            } else { history(layout) }
+            history(layout).overlay {
+                if session.rows.isEmpty {
+                    if let message = session.message { note(message) }
+                    else if session.entryPhase == .unavailable && !session.fullAccess {
+                        note("打开「允许完全访问」可记录新内容。")
+                    } else if session.entryPhase == .history && !session.checkingInitialPasteboard {
+                        note(session.fullAccess ? "暂无历史记录" : "打开「允许完全访问」可记录新内容。")
+                    }
+                }
+            }
         case .categories: categoryList(nil)
         case .file(let row): categoryList(row)
         case .clear:
@@ -193,7 +203,8 @@ struct KeyboardHistory: View {
                     Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Clipboard")
                         .font(.system(size: 16)).lineLimit(1).minimumScaleFactor(0.7)
                         .foregroundStyle(Color(uiColor: .label)).opacity(presentation.showsInputModeName ? 1 : 0)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: presentation.showsInputModeName)
+                        .animation(reduceMotion || presentation.showsInputModeName ? nil : .easeOut(duration: 0.18),
+                                   value: presentation.showsInputModeName)
                         .allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .overlay(alignment: .bottomTrailing) {
