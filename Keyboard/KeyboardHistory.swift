@@ -5,27 +5,27 @@ struct KeyboardHistory: View {
     @ObservedObject var session: ClipboardSession
     @ObservedObject var presentation: KeyboardPresentation
     let select: (ClipRow) -> Void
-    let insert: (String) -> Void
-    let erase: () -> Void
-    let moveCursor: (Int) -> Void
     let applyCategory: (CategoryRequest) -> Void
     let adjustHeight: (Int?) -> Void
     let globe: (UIButton) -> Void
 
-    private enum Panel: Equatable { case history, categories, file(ClipRow), clear }
+    private enum Panel: Equatable { case history, categories, file(ClipRow), actions, clear }
     @State private var panel: Panel = .history
     @AppStorage("ClipboardRecentFiling") private var recentFiling = Data()
     @AppStorage(KeyboardPresentation.hapticsPreference) private var hapticsEnabled = true
     @Environment(\.keyboardFeedback) private var feedback
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
+    @ScaledMetric(relativeTo: .title3) private var categorySize: CGFloat = 20
     private var showsContent: Bool {
         presentation.settings || presentation.categoryRequest != nil || session.entryPhase != .preparing
     }
 
     var body: some View {
         GeometryReader { bounds in
-            let layout = KeyboardLayout(size: bounds.size)
-            let rail = min(56, max(43, bounds.size.width * 0.122))
+            let headerHeight = min(bounds.size.height, max(47, ceil(categorySize * 1.2) + 16))
+            let available = max(1, bounds.size.height - headerHeight)
+            let rowCount = max(1, min(floor(available / 44), (available / 49).rounded()))
+            let rowHeight = available / rowCount
             VStack(spacing: 0) {
                 if let request = presentation.categoryRequest {
                     VStack(spacing: 8) {
@@ -43,24 +43,36 @@ struct KeyboardHistory: View {
                             .accessibilityIdentifier("applyCategoryChange")
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                     if presentation.needsGlobe {
-                        SystemGlobe(install: globe).frame(width: rail, height: layout.keyHeight)
+                        SystemGlobe(install: globe).frame(width: 44, height: headerHeight)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else if presentation.settings {
                     settings
                     if presentation.needsGlobe {
-                        SystemGlobe(install: globe).frame(width: rail, height: layout.keyHeight)
+                        SystemGlobe(install: globe).frame(width: 44, height: headerHeight)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                } else if case .file(let row) = panel {
+                    ZStack {
+                        VStack(spacing: 0) {
+                            Text("归类到").font(.headline)
+                            Text(verbatim: row.isImage ? "图片" : row.preview).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+                        }.padding(.horizontal, 65)
+                        HStack {
+                            Button("取消") { panel = .history }
+                            Spacer()
+                            if presentation.needsGlobe { SystemGlobe(install: globe).frame(width: 44) }
+                        }.padding(.horizontal, 12)
+                    }.frame(height: headerHeight)
+                    categoryList(row).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    header(height: layout.headerHeight).frame(height: layout.headerHeight)
-                    HStack(alignment: .top, spacing: layout.columnGap) {
-                        content(layout).frame(maxWidth: .infinity, maxHeight: .infinity)
-                        commands(layout).frame(width: rail)
-                    }.frame(height: layout.rowsHeight)
-                    footer(layout).frame(height: layout.keyHeight).padding(.top, layout.rowGap)
+                    categoryStrip(height: headerHeight, width: bounds.size.width)
+                        .frame(height: panel == .categories ? bounds.size.height : headerHeight)
+                    if panel != .categories {
+                        content(rowHeight: rowHeight).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
-            }.padding(.horizontal, layout.sideInset).padding(.bottom, layout.bottomInset)
+            }
                 .opacity(showsContent ? 1 : 0)
                 .allowsHitTesting(showsContent).accessibilityHidden(!showsContent)
         }
@@ -71,41 +83,50 @@ struct KeyboardHistory: View {
         }
     }
 
-    @ViewBuilder private func header(height: CGFloat) -> some View {
-        if case .file(let row) = panel {
-            ZStack {
-                VStack(spacing: 0) {
-                    Text("归类到").font(.subheadline.weight(.medium))
-                    Text(verbatim: row.isImage ? "图片" : row.preview).lineLimit(1).font(.caption2).foregroundStyle(.secondary)
-                }.padding(.horizontal, 54)
-                HStack { Button("取消") { panel = .history }; Spacer() }
-            }
-        } else {
-            HStack(spacing: 0) {
-                ScrollViewReader { scroll in
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 3) {
-                            ForEach(session.categories) { category in
-                                let current = session.category == category.id
-                                Button { feedback(); browse(category) } label: {
-                                    Text(verbatim: category.name).lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                                        .font(.subheadline.weight(current ? .semibold : .regular))
-                                        .padding(.horizontal, 8).frame(minWidth: 44).frame(height: height)
-                                        .contentShape(Rectangle())
-                                }.buttonStyle(.plain).foregroundStyle(current ? Color.primary : Color.secondary)
-                                    .accessibilityAddTraits(current ? .isSelected : [])
-                                    .accessibilityIdentifier("tab-" + (category.id.isEmpty ? "ordinary" : category.id))
-                                    .id(category.id)
+    private func categoryStrip(height: CGFloat, width: CGFloat) -> some View {
+        let expanded = panel == .categories
+        let usableWidth = max(1, width - 48 - (presentation.needsGlobe ? 44 : 0))
+        return HStack(alignment: .top, spacing: 0) {
+            if presentation.needsGlobe { SystemGlobe(install: globe).frame(width: 44, height: height) }
+            ScrollViewReader { scroll in
+                Group {
+                    if expanded {
+                        ScrollView(.vertical) {
+                            CategoryFlow {
+                                categoryButtons(height: height, width: usableWidth, expanded: true)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        ScrollView(.horizontal) {
+                            LazyHStack(spacing: 1) {
+                                categoryButtons(height: height, width: usableWidth, expanded: false)
                             }
                         }
-                    }.scrollIndicators(.hidden).clipped()
-                        .onChange(of: session.category) { _, value in scroll.scrollTo(value, anchor: .center) }
-                }
-                CategoryDisclosure(expanded: panel == .categories) {
-                    feedback()
-                    panel = panel == .categories ? .history : .categories
-                }.frame(width: 44, height: height)
+                    }
+                }.padding(.horizontal, 2).scrollIndicators(.hidden).clipped()
+                    .onChange(of: expanded, initial: true) { _, _ in
+                        scroll.scrollTo(session.category, anchor: expanded ? .top : .center)
+                    }
+                    .onChange(of: session.category) { _, value in scroll.scrollTo(value, anchor: .center) }
             }
+            CategoryDisclosure(expanded: expanded) {
+                feedback()
+                panel = expanded ? .history : .categories
+            }
+            .frame(width: 44, height: height)
+            .overlay(alignment: .leading) {
+                Rectangle().fill(Color(uiColor: .separator).opacity(0.55))
+                    .frame(width: 1 / displayScale, height: min(27, height)).allowsHitTesting(false)
+            }
+        }
+    }
+
+    private func categoryButtons(height: CGFloat, width: CGFloat, expanded: Bool) -> some View {
+        ForEach(session.categories) { category in
+            CategoryButton(category: category, selected: session.category == category.id, expanded: expanded,
+                           fontSize: categorySize, height: height, maximumWidth: width,
+                           choose: { feedback(); browse(category) }, manage: { feedback(); panel = .actions })
+                .id(category.id)
         }
     }
 
@@ -114,10 +135,10 @@ struct KeyboardHistory: View {
         panel = .history
     }
 
-    @ViewBuilder private func content(_ layout: KeyboardLayout) -> some View {
+    @ViewBuilder private func content(rowHeight: CGFloat) -> some View {
         switch panel {
         case .history:
-            history(layout).overlay {
+            history(rowHeight: rowHeight).overlay {
                 if session.rows.isEmpty {
                     if let message = session.message { note(message) }
                     else if session.entryPhase == .unavailable && !session.fullAccess {
@@ -127,8 +148,17 @@ struct KeyboardHistory: View {
                     }
                 }
             }
-        case .categories: categoryList(nil)
-        case .file(let row): categoryList(row)
+        case .actions:
+            VStack(spacing: 4) {
+                HStack(spacing: 20) {
+                    Button("撤销上一步") { feedback(); session.undo(); panel = .history }
+                        .disabled(!session.fullAccess || !session.undoAvailable).accessibilityIdentifier("undoHistory")
+                    Button("清空普通记录") { feedback(); requestClear() }
+                        .disabled(!session.fullAccess || session.ordinaryCount == 0).accessibilityIdentifier("clearHistory")
+                }
+                Button("取消") { panel = .history }.accessibilityIdentifier("cancelActions")
+            }.buttonStyle(.borderless).controlSize(.large)
+        case .categories, .file: EmptyView()
         case .clear:
             VStack(spacing: 6) {
                 Text("清空「普通」里的 \(session.ordinaryCount) 条未置顶记录？")
@@ -142,9 +172,9 @@ struct KeyboardHistory: View {
         }
     }
 
-    private func categoryList(_ row: ClipRow?) -> some View {
+    private func categoryList(_ row: ClipRow) -> some View {
         let recentIDs = (try? JSONDecoder().decode([String].self, from: recentFiling)) ?? []
-        let recent = row == nil ? [] : recentIDs.compactMap { id in session.categories.first { $0.id == id && id != session.category } }
+        let recent = recentIDs.compactMap { id in session.categories.first { $0.id == id && id != session.category } }
         let others = session.categories.filter { group in !recent.contains(group) }
         return ScrollView {
             VStack(alignment: .leading, spacing: 4) {
@@ -157,22 +187,20 @@ struct KeyboardHistory: View {
         }
     }
 
-    private func folderGrid(_ categories: [ClipCategory], filing row: ClipRow?) -> some View {
+    private func folderGrid(_ categories: [ClipCategory], filing row: ClipRow) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 85), spacing: 4)], alignment: .leading, spacing: 4) {
             ForEach(categories) { category in
                 Button {
                     feedback()
-                    if let row {
-                        session.perform(.move(row.id, to: category.id))
-                        var recent = (try? JSONDecoder().decode([String].self, from: recentFiling)) ?? []
-                        recent.removeAll { $0 == category.id }; recent.insert(category.id, at: 0)
-                        if let data = try? JSONEncoder().encode(Array(recent.prefix(3))) { recentFiling = data }
-                        panel = .history
-                    } else { browse(category) }
+                    session.perform(.move(row.id, to: category.id))
+                    var recent = (try? JSONDecoder().decode([String].self, from: recentFiling)) ?? []
+                    recent.removeAll { $0 == category.id }; recent.insert(category.id, at: 0)
+                    if let data = try? JSONEncoder().encode(Array(recent.prefix(3))) { recentFiling = data }
+                    panel = .history
                 } label: {
-                    Text(verbatim: category.name).font(.subheadline).multilineTextAlignment(.leading)
+                    Text(verbatim: category.name).font(.system(size: categorySize)).multilineTextAlignment(.leading)
                         .padding(.horizontal, 6).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-                }.buttonStyle(KeycapStyle()).disabled(row != nil && category.id == session.category)
+                }.buttonStyle(HistoryRowStyle()).disabled(category.id == session.category)
                     .accessibilityIdentifier("folder-" + (category.id.isEmpty ? "ordinary" : category.id))
             }
         }
@@ -188,57 +216,22 @@ struct KeyboardHistory: View {
         panel = .history
     }
 
-    private func commands(_ layout: KeyboardLayout) -> some View {
-        VStack(spacing: layout.rowGap) {
-            KeyboardHoldKey("清空普通记录", id: "clearHistory", symbol: "trash", holdLabel: "直接清空普通未置顶记录",
-                            tap: requestClear, hold: clearOrdinary)
-                .disabled(!session.fullAccess || session.ordinaryCount == 0).frame(height: layout.keyHeight)
-            KeyboardKey(label: "撤销", id: "undoHistory", symbol: "arrow.uturn.backward",
-                        foreground: session.undoAvailable ? .primary : .secondary) { session.undo(); panel = .history }
-                .disabled(!session.fullAccess || !session.undoAvailable || panel == .clear).frame(height: layout.keyHeight)
-            KeyboardHoldKey("退格", id: "keyboardBackspace", symbol: "delete.left",
-                            tap: erase, hold: erase, repeatsOnHold: true).frame(height: layout.keyHeight)
-        }
-    }
-
-    private func footer(_ layout: KeyboardLayout) -> some View {
-        HStack(spacing: layout.columnGap) {
-            SystemGlobe(install: globe).frame(width: 2 * layout.smallKey + layout.columnGap)
-            KeyboardHoldKey("空格", id: "keyboardSpace", holdLabel: "移动光标", tap: { insert(" ") }, hold: {}, moveCursor: moveCursor)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay {
-                    Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Clipboard")
-                        .font(.system(size: 16)).lineLimit(1).minimumScaleFactor(0.7)
-                        .foregroundStyle(Color(uiColor: .label)).opacity(presentation.showsInputModeName ? 1 : 0)
-                        .animation(reduceMotion || presentation.showsInputModeName ? nil : .easeOut(duration: 0.18),
-                                   value: presentation.showsInputModeName)
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    if !presentation.showsInputModeName {
-                        Text("剪").font(.system(size: 11)).foregroundStyle(.secondary).padding(.trailing, 5).padding(.bottom, 2)
-                            .allowsHitTesting(false).accessibilityHidden(true)
-                    }
-                }
-            let key = presentation.returnKey
-            KeyboardKey(label: key.label, id: "keyboardReturn", symbol: key.symbol,
-                        fill: key.fill, foreground: key.foreground, fontSize: key.symbol == nil ? 17 : 19) { insert("\n") }
-                .disabled(!key.enabled).frame(width: layout.returnWidth)
-        }
-    }
-
-    private func history(_ layout: KeyboardLayout) -> some View {
+    private func history(rowHeight: CGFloat) -> some View {
         List {
             ForEach(session.rows) { row in
                 Button { feedback(); select(row) } label: {
                     HStack(spacing: 7) {
                         if row.isPinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
-                        ClipLabel(row: row, session: session, keyHeight: layout.keyHeight)
+                        ClipLabel(row: row, session: session, keyHeight: rowHeight)
                     }
-                    .padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: layout.keyHeight).contentShape(Rectangle())
+                    .padding(.horizontal, 15).frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: rowHeight).contentShape(Rectangle())
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(Color(uiColor: .separator).opacity(0.5))
+                            .frame(height: 1 / displayScale).padding(.horizontal, 15).allowsHitTesting(false)
+                    }
                 }
-                .buttonStyle(KeycapStyle()).disabled(!session.fullAccess && row.isImage)
+                .buttonStyle(HistoryRowStyle()).disabled(!session.fullAccess && row.isImage)
                 .accessibilityLabel(Text(verbatim: row.isImage ? "图片" : row.preview))
                 .accessibilityValue(row.isPinned ? "已置顶" : "")
                 .accessibilityIdentifier("historyKey")
@@ -259,7 +252,7 @@ struct KeyboardHistory: View {
                 .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
                 .task { await session.nextPage(after: row) }
             }
-        }.listStyle(.plain).listRowSpacing(layout.rowGap).scrollContentBackground(.hidden)
+        }.listStyle(.plain).listRowSpacing(0).scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 0).environment(\.layoutDirection, .leftToRight)
             .contentMargins(.vertical, 0, for: .scrollContent)
     }

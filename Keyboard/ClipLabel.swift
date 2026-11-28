@@ -25,7 +25,7 @@ struct ClipLabel: View {
                 }
             } else {
                 Text(verbatim: row.preview)
-                    .font(.body).lineLimit(2)
+                    .font(.body).lineLimit(1)
                     .multilineTextAlignment(.leading)
             }
         }

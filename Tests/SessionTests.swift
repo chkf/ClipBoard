@@ -61,7 +61,7 @@ final class SessionTests: XCTestCase {
         XCTAssertTrue(session.rows.isEmpty)
     }
 
-    func testSwitchDropsFiledOrRevokedPreviewAndKeepsInputAvailableDuringSlowRead() async throws {
+    func testSwitchDropsFiledOrRevokedPreviewAndKeepsCategoryNavigationAvailableDuringSlowRead() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let seed = try HistoryStore(directory: directory)
         try await seed.observe(.text("只在工作分类"), stamp: .init(boot: 1, count: 1), replacing: nil)
@@ -96,7 +96,7 @@ final class SessionTests: XCTestCase {
         session.start(fullAccess: false, captureEnabled: false)
         XCTAssertEqual(session.entryPhase, .preparing)
         XCTAssertTrue(session.rows.isEmpty)
-        try await eventually { session.entryPhase == .inputOnly }
+        try await eventually { session.entryPhase == .categoriesOnly }
         XCTAssertNil(session.message)
         gate.continuation.finish()
         try await eventually { session.entryPhase == .unavailable }

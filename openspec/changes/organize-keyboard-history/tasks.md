@@ -25,3 +25,9 @@ The [release workflow](https://github.com/chkf/ClipBoard/actions/runs/4604889675
 The first history record appeared on all 124 measured frames in light mode and all 159 in dark mode. The English system keyboard menu showed “Chinese” below Clipboard. The dark-mode test for switching to Apple's emoji keyboard passed on its second run. [Simulator results](https://github.com/chkf/ClipBoard/actions/runs/46103221599)
 
 Both published IPA files matched their SHA-256 checksums and contained the Simplified Chinese keyboard extension. [Clipboard 1.3.1](https://github.com/chkf/ClipBoard/releases/tag/v1.3.1)
+
+## 5. Candidate strip and full-width history
+
+- [x] 5.1 Apply the approved category typography, fixed chevron, wrapped selection and borderless full-width history. Move clear and undo to a category hold and preserve the system switch.
+- [ ] 5.2 Exercise the new surface, its gestures and its visible switch on both simulator configurations.
+- [ ] 5.3 Publish and verify both 1.4.0 IPA downloads.
