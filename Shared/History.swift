@@ -140,6 +140,13 @@ actor HistoryStore {
             if firstCategories { try database.execute("INSERT INTO categories(id,name) VALUES('work','工作'),('frequent','常用')") }
             try database.execute("CREATE TABLE IF NOT EXISTS filing(id TEXT PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE, category TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE)")
             try database.execute("CREATE INDEX IF NOT EXISTS filing_category ON filing(category,id)")
+            let version = try database.query("PRAGMA user_version") { $0.integer(0) }.first
+            if version == 0 {
+                let settings = HistorySettings()
+                try database.execute("UPDATE state SET days=?,revision=revision+1 WHERE id=1", [.integer(settings.retention)])
+                try HistoryStore.deleteExpired(in: database, through: settings.cutoff(at: Date()))
+                try database.execute("PRAGMA user_version = 1")
+            }
         }
         try database.execute("""
             CREATE TEMP TABLE undo_rows(step INTEGER, kind TEXT NOT NULL, id TEXT NOT NULL, category TEXT, pinned REAL,
@@ -149,7 +156,9 @@ actor HistoryStore {
     }
 
     func state() throws -> HistoryState {
-        let result = try db.query("SELECT days,auto_switch,revision,boot,counter,last_key FROM state WHERE id=1") { row in
+        // A read-only keyboard can open the old database before either process can migrate it.
+        let days = writable ? "days" : "CASE WHEN (SELECT user_version FROM pragma_user_version)=0 THEN \(HistorySettings.defaultRetention) ELSE days END"
+        let result = try db.query("SELECT " + days + ",auto_switch,revision,boot,counter,last_key FROM state WHERE id=1") { row in
             let settings = HistorySettings(retention: row.integer(0), autoSwitch: row.integer(1) != 0)
             let stamp = PasteStamp(boot: row.real(3), count: row.integer(4))
             let event = row.isNull(4) ? nil : PasteEvent(stamp: stamp, key: row.isNull(5) ? nil : row.text(5))
@@ -280,19 +289,23 @@ actor HistoryStore {
         }
     }
 
-    private func expire(through cutoff: TimeInterval) throws {
-        if try db.execute("DELETE FROM clips WHERE updated<=? AND id NOT IN (SELECT id FROM pins) AND id NOT IN (SELECT id FROM filing)", [.real(cutoff)]) > 0 { try bumpRevision() }
+    @discardableResult
+    private static func deleteExpired(in db: Database, through cutoff: TimeInterval) throws -> Int {
+        try db.execute("DELETE FROM clips WHERE updated<=? AND id NOT IN (SELECT id FROM pins) AND id NOT IN (SELECT id FROM filing)", [.real(cutoff)])
     }
 
     func prune(now: Date = Date()) throws {
-        try db.transaction { try expire(through: state().settings.cutoff(at: now)) }
+        try db.transaction {
+            let cutoff = try state().settings.cutoff(at: now)
+            if try Self.deleteExpired(in: db, through: cutoff) > 0 { try bumpRevision() }
+        }
     }
 
     func retention(_ days: Int, now: Date = Date()) throws {
         guard HistorySettings.durations.contains(days) else { return }
         try db.transaction {
             try db.execute("UPDATE state SET days=?,revision=revision+1 WHERE id=1", [.integer(days)])
-            try expire(through: HistorySettings(retention: days).cutoff(at: now))
+            try Self.deleteExpired(in: db, through: HistorySettings(retention: days).cutoff(at: now))
         }
     }
 

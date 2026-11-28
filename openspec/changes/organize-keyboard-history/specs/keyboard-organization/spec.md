@@ -11,7 +11,7 @@ The keyboard SHALL open to ordinary history and present all categories in a scro
 
 #### Scenario: Older installation
 - **WHEN** a user upgrades
-- **THEN** existing records appear in ordinary history with their original content, timestamps and pins
+- **THEN** retained records keep their original content, timestamps, pins and existing category memberships
 
 #### Scenario: Category management and system input
 - **WHEN** the user manages categories in the containing app
@@ -49,6 +49,12 @@ The category strip SHALL use 20-point text at the standard text size, horizontal
 ### Requirement: Retain recently copied ordinary records
 
 New installations SHALL default to a rolling three-day window for ordinary unpinned history. The settings SHALL offer 3, 7, 15, 30 and 90 days. A new copy of the same content restarts the interval.
+
+#### Scenario: Upgrade an existing keyboard
+- **WHEN** an older installation first opens its history
+- **THEN** the keyboard uses the three-day window, including for existing ordinary records
+- **AND** its first writable migration removes expired text and images and preserves pins, filing, other preferences and the latest copy event
+- **AND** a duration selected after migration is retained on subsequent launches
 
 #### Scenario: Reach the three-day boundary
 - **WHEN** a record's last effective copy reaches 72 hours in three-day mode

@@ -24,7 +24,7 @@ final class KeyboardUpgradeTests: XCTestCase {
         XCTAssertEqual(body.text, text)
     }
 
-    func testOpeningVersion104KeyboardDatabasePreservesHistorySettingsAndLastCopy() async throws {
+    func testOpeningVersion104UsesThreeDaysAndPreservesHistorySwitchSettingAndLastCopy() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -46,7 +46,7 @@ final class KeyboardUpgradeTests: XCTestCase {
         }
         let store = try HistoryStore(directory: directory)
         let state = try await store.state()
-        XCTAssertEqual(state.settings.retention, 15)
+        XCTAssertEqual(state.settings.retention, 3)
         XCTAssertTrue(state.settings.autoSwitch)
         XCTAssertEqual(state.event, PasteEvent(stamp: stamp, key: clip.key))
         let body = try await store.body("original")
@@ -55,5 +55,54 @@ final class KeyboardUpgradeTests: XCTestCase {
         try await store.observe(clip, stamp: stamp, replacing: state.event)
         let rows = try await store.page()
         XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testLegacyWindowIsAppliedOnceAndReadOnlyAccessSeesTheSameHistory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let now = Date(), old = now.addingTimeInterval(-4 * 86_400)
+        let image = PreparedClip(key: "old-image", preview: "图片", body: ClipBody(type: "public.png", data: Data([1, 2])),
+                                 thumbnail: Data([3]))
+        let expiredID: String
+        do {
+            let store = try HistoryStore(directory: directory)
+            try await store.retention(90)
+            let items: [PreparedClip] = [image, .text("置顶"), .text("已归类"), .text("今天")]
+            for (index, clip) in items.enumerated() {
+                let previous = try await store.state().event
+                try await store.observe(clip, stamp: .init(boot: 1, count: index + 1), replacing: previous,
+                                        now: index == 3 ? now : old)
+            }
+            let rows = try await store.page()
+            expiredID = try XCTUnwrap(rows.first(where: \.isImage)).id
+            let pin = try XCTUnwrap(rows.first { $0.preview == "置顶" })
+            let filed = try XCTUnwrap(rows.first { $0.preview == "已归类" })
+            try await store.organize(.pin(pin.id, true))
+            try await store.organize(.move(filed.id, to: "work"))
+            let db = try Database(url: directory.appendingPathComponent("History.sqlite3"), readOnly: false)
+            try db.execute("PRAGMA user_version = 0")
+        }
+        let reader = try HistoryStore(directory: directory, readOnly: true)
+        let readPage = try await reader.categoryPage(since: -1, category: "", limit: 60)
+        XCTAssertEqual(readPage.0.settings.retention, 3)
+        XCTAssertEqual(try XCTUnwrap(readPage.1).rows.map(\.preview), ["置顶", "今天"])
+        let original = try await reader.body(expiredID)
+        XCTAssertEqual(original.data, image.body.data)
+
+        let writer = try HistoryStore(directory: directory)
+        let remaining = try await writer.page()
+        XCTAssertEqual(Set(remaining.map(\.preview)), ["置顶", "已归类", "今天"])
+        XCTAssertEqual(remaining.first(where: \.isPinned)?.preview, "置顶")
+        let work = try await writer.page(category: "work")
+        XCTAssertEqual(work.map(\.preview), ["已归类"])
+        let thumb = try await writer.thumbnail(expiredID)
+        XCTAssertNil(thumb)
+        do { _ = try await writer.body(expiredID); XCTFail("The expired original survived the migration") } catch HistoryError.missing {}
+        try await writer.retention(15)
+        let reopened = try HistoryStore(directory: directory)
+        let saved = try await reopened.state().settings.retention
+        let sharedChoice = try await reader.state().settings.retention
+        XCTAssertEqual(saved, 15)
+        XCTAssertEqual(sharedChoice, 15)
     }
 }
