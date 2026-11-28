@@ -20,4 +20,8 @@ The [release workflow](https://github.com/chkf/ClipBoard/actions/runs/4604889675
 - [x] 4.1 Preserve the ordinary page during a switch, settle a cold first read together, and keep the system input keys available during slow storage.
 - [x] 4.2 Bind one-step undoable bulk clear to a trash-key hold, keep tap confirmation, and repeat backspace in the host field.
 - [x] 4.3 Restore the original Chinese keyboard language tag and keep discovery compatible with enabled keyboards from 1.3.0.
-- [ ] 4.4 Check the first painted record, trash and backspace gestures, system keyboard handoff, and session boundaries in both signing modes, and verify the v1.3.1 installable release.
+- [x] 4.4 Check the first painted record, trash and backspace gestures, system keyboard handoff, and session boundaries in both signing modes, and verify the v1.3.1 installable release.
+
+The first history record appeared on all 124 measured frames in light mode and all 159 in dark mode. The English system keyboard menu showed “Chinese” below Clipboard. The dark-mode test for switching to Apple's emoji keyboard passed on its second run. [Simulator results](https://github.com/chkf/ClipBoard/actions/runs/46103221599)
+
+Both published IPA files matched their SHA-256 checksums and contained the Simplified Chinese keyboard extension. [Clipboard 1.3.1](https://github.com/chkf/ClipBoard/releases/tag/v1.3.1)
