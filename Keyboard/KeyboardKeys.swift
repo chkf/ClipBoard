@@ -102,10 +102,46 @@ struct CategoryFlow: Layout {
     }
 }
 
+/// UIKit owns the whole row's hit region, including the blank area after a short label.
+struct HistoryRowButton: UIViewRepresentable {
+    let row: ClipRow
+    let enabled: Bool
+    let select: () -> Void
+
+    final class Coordinator {
+        var select: () -> Void
+        init(_ select: @escaping () -> Void) { self.select = select }
+    }
+    final class HitButton: UIButton {
+        override var isHighlighted: Bool {
+            didSet { backgroundColor = UIColor.label.withAlphaComponent(isHighlighted ? 0.08 : 0.015) }
+        }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(select) }
+    func makeUIView(context: Context) -> UIButton {
+        let button = HitButton(type: .custom)
+        button.backgroundColor = UIColor.label.withAlphaComponent(0.015)
+        button.accessibilityIdentifier = "historyKey"
+        button.addAction(UIAction { [weak coordinator = context.coordinator] _ in coordinator?.select() }, for: .touchUpInside)
+        return button
+    }
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.select = select
+        button.isEnabled = enabled
+        button.accessibilityLabel = row.isImage ? "图片" : row.preview
+        button.accessibilityValue = row.isPinned ? "已置顶" : nil
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else { return nil }
+        return CGSize(width: width, height: height)
+    }
+}
+
 struct HistoryRowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.foregroundStyle(.primary)
-            .background(configuration.isPressed ? Color.primary.opacity(0.08) : Color.clear)
+            .background(Color.primary.opacity(configuration.isPressed ? 0.08 : 0.015))
+            .contentShape(Rectangle())
     }
 }
 

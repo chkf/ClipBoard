@@ -222,22 +222,21 @@ struct KeyboardHistory: View {
     private func history(rowHeight: CGFloat) -> some View {
         List {
             ForEach(session.rows) { row in
-                Button { feedback(); select(row) } label: {
+                ZStack(alignment: .leading) {
+                    HistoryRowButton(row: row, enabled: session.fullAccess || !row.isImage) { feedback(); select(row) }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     HStack(spacing: 7) {
                         if row.isPinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
                         ClipLabel(row: row, session: session, keyHeight: rowHeight)
                     }
-                    .padding(.horizontal, 15).frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: rowHeight).contentShape(Rectangle())
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(Color(uiColor: .separator).opacity(0.5))
-                            .frame(height: 1 / displayScale).padding(.horizontal, 15).allowsHitTesting(false)
-                    }
+                    .padding(.horizontal, 15)
+                    .allowsHitTesting(false).accessibilityHidden(true)
                 }
-                .buttonStyle(HistoryRowStyle()).disabled(!session.fullAccess && row.isImage)
-                .accessibilityLabel(Text(verbatim: row.isImage ? "图片" : row.preview))
-                .accessibilityValue(row.isPinned ? "已置顶" : "")
-                .accessibilityIdentifier("historyKey")
+                .frame(maxWidth: .infinity).frame(height: rowHeight)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Color(uiColor: .separator).opacity(0.5))
+                        .frame(height: 1 / displayScale).padding(.horizontal, 15).allowsHitTesting(false)
+                }
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     if session.fullAccess {
                         Button { feedback(); session.perform(.pin(row.id,!row.isPinned)) }
