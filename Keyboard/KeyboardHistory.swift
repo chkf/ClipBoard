@@ -75,6 +75,9 @@ struct KeyboardHistory: View {
             }
                 .opacity(showsContent ? 1 : 0)
                 .allowsHitTesting(showsContent).accessibilityHidden(!showsContent)
+            if !showsContent && presentation.needsGlobe {
+                SystemGlobe(install: globe).frame(width: 44, height: headerHeight)
+            }
         }
         .onChange(of: presentation.appearanceID) { _, _ in panel = .history }
         .onChange(of: session.fullAccess) { _, access in if !access { panel = .history } }

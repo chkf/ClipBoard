@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 enum KeyboardEntryPhase: Equatable {
-    case preparing, categoriesOnly, history, unavailable
+    case preparing, loadingCategory, history, unavailable
 }
 
 @MainActor
@@ -24,7 +24,6 @@ final class ClipboardSession: ObservableObject {
     private let open: (Bool) async throws -> HistoryStore
     private var monitor: Task<Void, Never>?
     private var firstRead: Task<Void, Never>?
-    private var revealCategories: Task<Void, Never>?
     private var undoCleanup: Task<Void, Never>?
     private var capture: Task<Void, Never>?
     private var captureStamp: PasteStamp?
@@ -76,14 +75,6 @@ final class ClipboardSession: ObservableObject {
         undoAvailable = false
         message = nil
         let generation = self.generation
-        if !reuse {
-            // A contended or protected database must not hold up category navigation.
-            revealCategories = Task { [weak self] in
-                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
-                guard let self, self.generation == generation, self.entryPhase == .preparing else { return }
-                self.entryPhase = .categoriesOnly
-            }
-        }
         if captureEnabled {
             notification = NotificationCenter.default.addObserver(forName: UIPasteboard.changedNotification,
                                                                object: nil, queue: .main) { [weak self] _ in
@@ -116,13 +107,11 @@ final class ClipboardSession: ObservableObject {
         active = false
         monitor?.cancel()
         firstRead?.cancel()
-        revealCategories?.cancel()
         capture?.cancel()
         if let notification { NotificationCenter.default.removeObserver(notification) }
         notification = nil
         monitor = nil
         firstRead = nil
-        revealCategories = nil
         capture = nil
         captureStamp = nil
         generation = UUID()
@@ -271,7 +260,6 @@ final class ClipboardSession: ObservableObject {
             if !loaded { loaded = true }
             if entryPhase != .history { entryPhase = .history }
         }
-        revealCategories?.cancel()
         return state
     }
 
@@ -296,7 +284,7 @@ final class ClipboardSession: ObservableObject {
         listGeneration = UUID()
         category = id
         rows = []
-        entryPhase = .categoriesOnly
+        entryPhase = .loadingCategory
         paging = false
         pageEnd = false
         revision = -1
