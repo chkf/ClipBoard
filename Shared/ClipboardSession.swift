@@ -35,7 +35,6 @@ final class ClipboardSession: ObservableObject {
     private var failedAttempts = 0
     private var retryAfter = Date.distantPast
     private var verifiedStamp: PasteStamp?
-    private var inspectedStamp: PasteStamp?
     private var revision = -1
     private var pageEnd = false
     private var paging = false
@@ -70,7 +69,9 @@ final class ClipboardSession: ObservableObject {
         active = true
         self.fullAccess = fullAccess
         self.captureEnabled = captureEnabled
-        checkingInitialPasteboard = fullAccess && captureEnabled && (!reuse || inspectedStamp != SystemPasteboard.stamp)
+        // Keep a settled empty page on a warm switch. Pasteboard IPC begins in
+        // tick, after UIKit has returned from the input-mode handoff.
+        checkingInitialPasteboard = fullAccess && captureEnabled && (!reuse || checkingInitialPasteboard)
         loaded = false
         undoAvailable = false
         message = nil
@@ -166,7 +167,6 @@ final class ClipboardSession: ObservableObject {
         loaded = false
         rows = []
         message = nil
-        inspectedStamp = nil
         checkingInitialPasteboard = false
     }
 
@@ -206,7 +206,6 @@ final class ClipboardSession: ObservableObject {
                 guard let self else { return }
                 defer {
                     if self.generation == cycle, self.captureStamp == stamp {
-                        self.inspectedStamp = stamp
                         if self.checkingInitialPasteboard { self.checkingInitialPasteboard = false }
                         self.capture = nil
                         self.captureStamp = nil
