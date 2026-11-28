@@ -41,8 +41,8 @@ jobs:
         run: |
           command -v xcodegen || brew install xcodegen
           xcodegen generate
-      - name: Simulate SideStore's shared group on the release simulator
-        if: matrix.task == 'simulator' && (github.ref_type == 'tag' || inputs.publish)
+      - name: Simulate SideStore's remapped shared group
+        if: matrix.task == 'simulator'
         run: |
           group='group.net.chkf.Clipboard.SIDETEST01'
           plist=/usr/libexec/PlistBuddy
@@ -87,13 +87,15 @@ jobs:
               xcrun xcresulttool get test-results summary --path "$result" || true
               name="$(basename "$result" .xcresult)"
               mkdir -p "build/screenshots/$name"
-              xcrun xcresulttool export attachments --path "$result" --output-path "build/screenshots/$name"
+              if [[ ! -f "build/screenshots/$name/manifest.json" ]]; then
+                xcrun xcresulttool export attachments --path "$result" --output-path "build/screenshots/$name"
+              fi
               ditto -ck --keepParent "$result" "$result.zip"
             fi
           done
-      - name: Compare the painted keys in the exported search-field screenshots
+      - name: Verify candidate typography and full-width history in the search field
         if: always() && matrix.task != 'ipa'
-        run: python3 scripts/check-keyboard-appearance.py build/screenshots/Tests
+        run: python3 scripts/check-keyboard.py appearance build/screenshots/Tests
       - uses: actions/upload-artifact@v4
         if: always() && matrix.task != 'ipa'
         with:
@@ -140,15 +142,13 @@ jobs:
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
           适用于 iOS 26 及以上版本。用全能签请下载 `-local.ipa`，沿用原证书和包名覆盖安装并保留键盘扩展。主 App 提供启用说明、试用输入框和键盘设置。
 
-          **切换键盘**　切回 Clipboard 时，「普通」分类可直接显示上次的记录。首次打开时，分类栏与历史列表一起更新。数据库读取较慢时，空格、退格和回车可以先用。
+          **剪贴板键盘**　顶部是按拼音候选栏样式排列的分类，左右滑动浏览，点右侧箭头可原位展开。点选分类后回到历史。历史占满分类栏下方，点整行插入文本，点图片可取回原图。
 
-          **分类**　记录右滑置顶，左滑后点「归类」或「删除」。顶栏可横滑，最右箭头展开全部分类。主 App 提供分类管理，删除分类会把记录移回「普通」。
+          **整理记录**　右滑置顶，左滑后点「归类」或「删除」。长按分类名可撤销本次键盘里的操作，也可以选择清空「普通」里的未置顶记录。确认后能一次撤销整批清空。
 
-          **清空与撤销**　轻点垃圾桶会居中确认，长按垃圾桶直接清空「普通」中未置顶的记录。右侧中键可以撤销本次键盘打开期间的归类、置顶、删除和整批清空，切走后结束。按住退格会连续删除输入框中的文字。
+          **滚动保留**　升级后也直接按最近 72 小时清理普通未置顶记录，从最后一次复制算起。升级前可将想长期保留的内容置顶或归类。主 App 齿轮可另选保留天数。
 
-          **输入**　轻点空格左侧的切换键可切到下一个输入法，长按可选择苹果键盘。键盘列表已恢复 Clipboard 的中文语言标识。苹果数字和表情由系统键盘提供。空格中央的名称淡出后，右下角显示「剪」。长按空格可左右移动光标。
-
-          **按键反馈**　点按历史或输入键时使用系统按键声和轻触感。声音跟随 iOS 键盘声音设置，触感默认开启，可以在 Clipboard 主 App 右上角齿轮里关闭。
+          **切换与设置**　使用系统地球切换输入法。键盘高度、触感和插入后自动切换可在主 App 齿轮中调整。原来的分类和置顶随覆盖安装保留。
 
           **从试用版更新**　如果 1.2.0 试用版主 App 还有待存记录，更新前可先点旧版的「存入键盘」。原来使用共享组或 SideStore 共享组版的用户请继续选 `-resign.ipa`。
 

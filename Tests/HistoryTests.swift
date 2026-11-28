@@ -153,6 +153,34 @@ final class HistoryTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty)
     }
 
+    func testThreeDayWindowIncludesRecentCopiesAndProtectsFiledAndPinnedRecords() async throws {
+        let settings = try await store.state().settings
+        XCTAssertEqual(settings.retention, 3)
+        try await capture(.text("置顶"), 1)
+        try await capture(.text("已归类"), 2)
+        try await capture(.text("再次复制"), 3)
+        try await capture(.text("到期"), 4)
+        let initial = try await store.page()
+        let pinned = try XCTUnwrap(initial.first { $0.preview == "置顶" })
+        let filed = try XCTUnwrap(initial.first { $0.preview == "已归类" })
+        try await store.pin(pinned.id, enabled: true, now: start)
+        try await store.organize(.move(filed.id, to: "work"), now: start)
+        try await capture(.text("再次复制"), 5, day: 2)
+        let cutoff = start.addingTimeInterval(72 * 3600)
+        let reader = try HistoryStore(directory: directory, readOnly: true)
+        let before = try await reader.categoryPage(since: -1, category: "", limit: 60, now: cutoff.addingTimeInterval(-1))
+        XCTAssertEqual(Set(try XCTUnwrap(before.1).rows.map(\.preview)), ["置顶", "到期", "再次复制"])
+        let after = try await reader.categoryPage(since: -1, category: "", limit: 60, now: cutoff)
+        XCTAssertEqual(try XCTUnwrap(after.1).rows.map(\.preview), ["置顶", "再次复制"])
+        try await store.prune(now: cutoff)
+        let remaining = try await store.page()
+        XCTAssertEqual(Set(remaining.map(\.preview)), ["置顶", "已归类", "再次复制"])
+        let final = cutoff.addingTimeInterval(2 * 86_400)
+        try await store.prune(now: final)
+        let protected = try await store.page()
+        XCTAssertEqual(Set(protected.map(\.id)), [pinned.id, filed.id])
+    }
+
     func testPaginationAndReadOnlyKeyboard() async throws {
         for count in 1...75 { try await capture(.text("row \(count)"), count) }
         let reader = try HistoryStore(directory: directory, readOnly: true)

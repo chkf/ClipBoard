@@ -24,15 +24,16 @@ extension HistoryStore {
         let ordinaryCount: Int
     }
 
-    func categoryPage(since revision: Int, category: String, limit: Int) throws -> (HistoryState, CategoryPage?) {
+    func categoryPage(since revision: Int, category: String, limit: Int, now: Date = Date()) throws -> (HistoryState, CategoryPage?) {
         try db.transaction(readOnly: true) {
             let state = try self.state()
             guard state.revision > revision else { return (state, nil) }
             let groups = try categories()
             let selected = groups.contains { $0.id == category } ? category : ClipCategory.ordinary.id
+            let cutoff = state.settings.cutoff(at: now)
             let snapshot = try CategoryPage(categories: groups, selected: selected,
-                                           rows: page(limit: limit, category: selected),
-                                           canUndo: undoDepth() > 0, ordinaryCount: ordinaryUnpinnedCount())
+                                           rows: page(limit: limit, category: selected, ordinaryCutoff: cutoff),
+                                           canUndo: undoDepth() > 0, ordinaryCount: ordinaryUnpinnedCount(after: cutoff))
             return (state, snapshot)
         }
     }
@@ -85,9 +86,11 @@ extension HistoryStore {
         }
     }
 
-    func ordinaryUnpinnedCount() throws -> Int {
+    private func ordinaryUnpinnedCount(after cutoff: TimeInterval) throws -> Int {
         guard supportsCategories else { return 0 }
-        return try db.query("SELECT COUNT(*) FROM clips WHERE id NOT IN (SELECT id FROM pins) AND id NOT IN (SELECT id FROM filing)") { $0.integer(0) }.first ?? 0
+        return try db.query("""
+            SELECT COUNT(*) FROM clips WHERE updated>? AND id NOT IN (SELECT id FROM pins) AND id NOT IN (SELECT id FROM filing)
+            """, [.real(cutoff)]) { $0.integer(0) }.first ?? 0
     }
 
     func undoDepth() throws -> Int {

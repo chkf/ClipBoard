@@ -60,9 +60,14 @@ struct PasteEvent: Equatable {
 }
 
 struct HistorySettings: Equatable {
-    static let durations = [7, 15, 30, 90]
-    var retention = 30
+    static let defaultRetention = 3
+    static let durations = [3, 7, 15, 30, 90]
+    var retention = HistorySettings.defaultRetention
     var autoSwitch = false
+
+    func cutoff(at now: Date) -> TimeInterval {
+        now.timeIntervalSince1970 - Double(retention) * 86_400
+    }
 }
 
 struct HistoryState {
@@ -125,16 +130,23 @@ actor HistoryStore {
                 """)
             try database.execute("""
                 CREATE TABLE IF NOT EXISTS state (
-                    id INTEGER PRIMARY KEY CHECK(id=1), days INTEGER NOT NULL DEFAULT 30,
+                    id INTEGER PRIMARY KEY CHECK(id=1), days INTEGER NOT NULL DEFAULT \(HistorySettings.defaultRetention),
                     auto_switch INTEGER NOT NULL DEFAULT 0, configured INTEGER NOT NULL DEFAULT 0,
                     revision INTEGER NOT NULL DEFAULT 0, boot REAL, counter INTEGER, last_key TEXT)
                 """)
-            try database.execute("INSERT OR IGNORE INTO state(id) VALUES(1)")
+            try database.execute("INSERT OR IGNORE INTO state(id,days) VALUES(1,?)", [.integer(HistorySettings.defaultRetention)])
             let firstCategories = try database.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='categories'") { $0.integer(0) }.isEmpty
             try database.execute("CREATE TABLE IF NOT EXISTS categories(id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE)")
             if firstCategories { try database.execute("INSERT INTO categories(id,name) VALUES('work','工作'),('frequent','常用')") }
             try database.execute("CREATE TABLE IF NOT EXISTS filing(id TEXT PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE, category TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE)")
             try database.execute("CREATE INDEX IF NOT EXISTS filing_category ON filing(category,id)")
+            let version = try database.query("PRAGMA user_version") { $0.integer(0) }.first
+            if version == 0 {
+                let settings = HistorySettings()
+                try database.execute("UPDATE state SET days=?,revision=revision+1 WHERE id=1", [.integer(settings.retention)])
+                try HistoryStore.deleteExpired(in: database, through: settings.cutoff(at: Date()))
+                try database.execute("PRAGMA user_version = 1")
+            }
         }
         try database.execute("""
             CREATE TEMP TABLE undo_rows(step INTEGER, kind TEXT NOT NULL, id TEXT NOT NULL, category TEXT, pinned REAL,
@@ -144,7 +156,9 @@ actor HistoryStore {
     }
 
     func state() throws -> HistoryState {
-        let result = try db.query("SELECT days,auto_switch,revision,boot,counter,last_key FROM state WHERE id=1") { row in
+        // A read-only keyboard can open the old database before either process can migrate it.
+        let days = writable ? "days" : "CASE WHEN (SELECT user_version FROM pragma_user_version)=0 THEN \(HistorySettings.defaultRetention) ELSE days END"
+        let result = try db.query("SELECT " + days + ",auto_switch,revision,boot,counter,last_key FROM state WHERE id=1") { row in
             let settings = HistorySettings(retention: row.integer(0), autoSwitch: row.integer(1) != 0)
             let stamp = PasteStamp(boot: row.real(3), count: row.integer(4))
             let event = row.isNull(4) ? nil : PasteEvent(stamp: stamp, key: row.isNull(5) ? nil : row.text(5))
@@ -154,13 +168,18 @@ actor HistoryStore {
         return state
     }
 
-    func page(after cursor: ClipRow? = nil, limit: Int = 60, matching query: String = "", category: String? = nil) throws -> [ClipRow] {
+    func page(after cursor: ClipRow? = nil, limit: Int = 60, matching query: String = "", category: String? = nil,
+              ordinaryCutoff: TimeInterval? = nil) throws -> [ClipRow] {
         let rank = supportsPins ? "COALESCE(p.pinned,0)" : "0.0"
         var sql = "SELECT c.id,c.preview,c.is_image,c.updated," + rank + " FROM clips c "
         if supportsPins { sql += "LEFT JOIN pins p ON p.id=c.id " }
         var conditions: [String] = []
         var values: [SQLValue] = []
         if let category {
+            if category == ClipCategory.ordinary.id, let ordinaryCutoff {
+                conditions.append("(" + rank + " > 0 OR c.updated > ?)")
+                values.append(.real(ordinaryCutoff))
+            }
             if supportsCategories {
                 if category == ClipCategory.ordinary.id { conditions.append("NOT EXISTS(SELECT 1 FROM filing f WHERE f.id=c.id)") }
                 else { conditions.append("c.id IN (SELECT id FROM filing WHERE category=?)"); values.append(.text(category)) }
@@ -270,20 +289,23 @@ actor HistoryStore {
         }
     }
 
-    private func expire(days: Int, now: Date) throws {
-        let cutoff = now.timeIntervalSince1970 - Double(days) * 86_400
-        if try db.execute("DELETE FROM clips WHERE updated<=? AND id NOT IN (SELECT id FROM pins) AND id NOT IN (SELECT id FROM filing)", [.real(cutoff)]) > 0 { try bumpRevision() }
+    @discardableResult
+    private static func deleteExpired(in db: Database, through cutoff: TimeInterval) throws -> Int {
+        try db.execute("DELETE FROM clips WHERE updated<=? AND id NOT IN (SELECT id FROM pins) AND id NOT IN (SELECT id FROM filing)", [.real(cutoff)])
     }
 
     func prune(now: Date = Date()) throws {
-        try db.transaction { try expire(days: state().settings.retention, now: now) }
+        try db.transaction {
+            let cutoff = try state().settings.cutoff(at: now)
+            if try Self.deleteExpired(in: db, through: cutoff) > 0 { try bumpRevision() }
+        }
     }
 
     func retention(_ days: Int, now: Date = Date()) throws {
         guard HistorySettings.durations.contains(days) else { return }
         try db.transaction {
             try db.execute("UPDATE state SET days=?,revision=revision+1 WHERE id=1", [.integer(days)])
-            try expire(days: days, now: now)
+            try Self.deleteExpired(in: db, through: HistorySettings(retention: days).cutoff(at: now))
         }
     }
 

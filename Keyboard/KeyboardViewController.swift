@@ -21,7 +21,6 @@ final class KeyboardViewController: UIInputViewController {
     private var rootHeight: NSLayoutConstraint?
     private var surfaceHeight: NSLayoutConstraint?
     private var visible = false
-    private var spaceNameTimeout: Task<Void, Never>?
     private var layoutWidth: CGFloat = 0
     private var applyingCategory = false
 
@@ -60,13 +59,6 @@ final class KeyboardViewController: UIInputViewController {
                     self.updateTraits()
                 }
             },
-            insert: { [weak self] text in self?.textDocumentProxy.insertText(text); self?.updateTraits() },
-            erase: { [weak self] in
-                guard let self, self.visible, self.session.active else { return }
-                self.textDocumentProxy.deleteBackward()
-                self.updateTraits()
-            },
-            moveCursor: { [weak self] offset in self?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) },
             applyCategory: { [weak self] request in self?.applyCategory(request) },
             adjustHeight: { [weak self] delta in self?.adjustHeight(delta) },
             globe: { [weak self] button in
@@ -146,9 +138,6 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func updateTraits() {
         let proxy = textDocumentProxy
-        let key = HostReturnKey(proxy.returnKeyType ?? .default,
-                                enabled: proxy.enablesReturnKeyAutomatically != true || proxy.hasText)
-        if presentation.returnKey != key { presentation.returnKey = key }
         let style: UIUserInterfaceStyle
         switch proxy.keyboardAppearance ?? .default {
         case .dark: style = .dark
@@ -171,7 +160,6 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if !visible { presentation.showsInputModeName = true }
         visible = true
         updateHeight()
         hostActive()
@@ -180,14 +168,7 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidAppear(animated)
         if hapticsEnabled { keyImpact.prepare() }
         hostActive()
-        if presentation.showsInputModeName, spaceNameTimeout == nil {
-            spaceNameTimeout = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(1150))
-                guard !Task.isCancelled, let self else { return }
-                self.presentation.showsInputModeName = false
-                self.spaceNameTimeout = nil
-            }
-        }
+
     }
 
     private var hapticsEnabled: Bool {
@@ -202,8 +183,6 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewWillDisappear(_ animated: Bool) {
         visible = false
-        spaceNameTimeout?.cancel()
-        spaceNameTimeout = nil
         session.suspendForSwitch()
         super.viewWillDisappear(animated)
     }

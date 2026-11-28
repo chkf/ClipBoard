@@ -4,9 +4,9 @@ Clipboard users need to find saved items by category and recover accidental chan
 
 ## What Changes
 
-- Replace keyboard history search with a scrollable category strip, expanded category list and an undo key.
-- Move clear confirmation into the history area. Keep the input row, keyboard feedback and system return-key traits.
-- Add cursor movement on the space bar and show a short keyboard identifier after its entry label fades.
+- Give the keyboard surface to a Pinyin-style category strip and full-width history rows. The disclosure expands the same categories inside the keyboard.
+- Keep swipe actions, keyboard feedback and the iOS input-mode switch. A hold on a category exposes session undo and the ordinary-history clear command.
+- Apply a rolling three-day window to ordinary unpinned history on new installations and on the first upgrade. Preserve subsequent retention choices.
 
 ## Capabilities
 
@@ -16,4 +16,4 @@ Clipboard users need to find saved items by category and recover accidental chan
 
 ## Impact
 
-The keyboard extension, local history schema, self-signable packages and iOS tests are affected. Existing records must survive installation over the prior version.
+The keyboard extension, local history schema, self-signable packages and iOS tests are affected. An upgrade preserves recent, pinned and filed records and cleans up expired ordinary records.

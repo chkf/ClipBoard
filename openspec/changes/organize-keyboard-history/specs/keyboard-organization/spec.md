@@ -11,7 +11,7 @@ The keyboard SHALL open to ordinary history and present all categories in a scro
 
 #### Scenario: Older installation
 - **WHEN** a user upgrades
-- **THEN** existing records appear in ordinary history with their original content, timestamps and pins
+- **THEN** retained records keep their original content, timestamps, pins and existing category memberships
 
 #### Scenario: Category management and system input
 - **WHEN** the user manages categories in the containing app
@@ -21,27 +21,42 @@ The keyboard SHALL open to ordinary history and present all categories in a scro
 
 ### Requirement: Undo while the keyboard is open
 
-The middle command SHALL undo filing, pin changes, individual deletion and clearing ordinary unpinned history in reverse order. The keyboard SHALL discard undo information when hidden or switched away.
+Holding a category SHALL reveal commands to undo filing, pin changes, individual deletion and clearing ordinary unpinned history in reverse order. The keyboard SHALL discard undo information when hidden or switched away.
 
 #### Scenario: Move then delete
 - **WHEN** a user files a record, deletes it in its new category and taps undo twice
 - **THEN** the first tap restores the record in the destination and the second returns it to its original category
 
 #### Scenario: Clear ordinary history
-- **WHEN** the user taps the trash key and confirms the centered prompt, or holds the trash key to clear directly
+- **WHEN** the user holds a category, chooses to clear ordinary history and confirms the centered prompt
 - **THEN** one undo can recover the entire affected batch, and categorized or pinned entries retain their content
-- **AND** holding backspace repeatedly deletes text before the host cursor and leaves the clipboard history intact
 
-### Requirement: Keep input gestures and keyboard layout
+### Requirement: Show only categories and history on the normal keyboard surface
 
-The keyboard SHALL retain whole-key hit targets, stable input rows and the host return-key traits. Holding space and dragging SHALL move the host cursor without inserting a space. A held globe key SHALL use the system input-mode menu.
+The category strip SHALL use 20-point text at the standard text size, horizontal scrolling and a trailing Pinyin-style chevron. History SHALL fill the surface beneath it with plain, full-width tappable records. The system switch SHALL remain accessible when UIKit requires a switch in the extension.
 
-#### Scenario: Settle the space bar
-- **WHEN** the keyboard has completed its entry transition
-- **THEN** the centered name is replaced by a small identifier in the lower-right corner
+#### Scenario: Expand the category strip
+- **WHEN** the user taps the disclosure
+- **THEN** categories wrap onto additional lines, each name appears once, and the arrow points up in the same position
+- **AND** selecting a category collapses the strip and shows the selected history
 
 #### Scenario: Switch back to saved history
 - **WHEN** the user switches away and back to ordinary history in the same foreground app with the same access
 - **THEN** the last ordinary page stays visible while the keyboard reopens its store, and an early tap inserts the current stored text once
-- **AND** the first read after a cold start shows the actual categories and rows together, with input keys available independently if storage is slow
+- **AND** the first read after a cold start shows the actual categories and rows together, with the system switch available independently if storage is slow
 - **AND** a background transition or access change clears the retained presentation before another host or permission scope can use it
+
+### Requirement: Retain recently copied ordinary records
+
+New installations SHALL default to a rolling three-day window for ordinary unpinned history. The settings SHALL offer 3, 7, 15, 30 and 90 days. A new copy of the same content restarts the interval.
+
+#### Scenario: Upgrade an existing keyboard
+- **WHEN** an older installation first opens its history
+- **THEN** the keyboard uses the three-day window, including for existing ordinary records
+- **AND** its first writable migration removes expired text and images and preserves pins, filing, other preferences and the latest copy event
+- **AND** a duration selected after migration is retained on subsequent launches
+
+#### Scenario: Reach the three-day boundary
+- **WHEN** a record's last effective copy reaches 72 hours in three-day mode
+- **THEN** ordinary unpinned text and images disappear from the keyboard, including when its database is read-only
+- **AND** the next writable cleanup deletes expired records, originals and thumbnails, and preserves pinned and filed items

@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 enum KeyboardEntryPhase: Equatable {
-    case preparing, inputOnly, history, unavailable
+    case preparing, loadingCategory, history, unavailable
 }
 
 @MainActor
@@ -24,7 +24,6 @@ final class ClipboardSession: ObservableObject {
     private let open: (Bool) async throws -> HistoryStore
     private var monitor: Task<Void, Never>?
     private var firstRead: Task<Void, Never>?
-    private var revealInput: Task<Void, Never>?
     private var undoCleanup: Task<Void, Never>?
     private var capture: Task<Void, Never>?
     private var captureStamp: PasteStamp?
@@ -56,7 +55,7 @@ final class ClipboardSession: ObservableObject {
             if resuming { verifiedStamp = nil }
             return
         }
-        let cutoff = Date().addingTimeInterval(-Double(settings.retention) * 86_400).timeIntervalSince1970
+        let cutoff = settings.cutoff(at: Date())
         let reuse = entryPhase == .history && category == ClipCategory.ordinary.id &&
             self.fullAccess == fullAccess && self.captureEnabled == captureEnabled &&
             rows.prefix(60).allSatisfy { $0.isPinned || $0.updated > cutoff }
@@ -76,14 +75,6 @@ final class ClipboardSession: ObservableObject {
         undoAvailable = false
         message = nil
         let generation = self.generation
-        if !reuse {
-            // A contended or protected database must not hold up the input keys.
-            revealInput = Task { [weak self] in
-                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
-                guard let self, self.generation == generation, self.entryPhase == .preparing else { return }
-                self.entryPhase = .inputOnly
-            }
-        }
         if captureEnabled {
             notification = NotificationCenter.default.addObserver(forName: UIPasteboard.changedNotification,
                                                                object: nil, queue: .main) { [weak self] _ in
@@ -116,13 +107,11 @@ final class ClipboardSession: ObservableObject {
         active = false
         monitor?.cancel()
         firstRead?.cancel()
-        revealInput?.cancel()
         capture?.cancel()
         if let notification { NotificationCenter.default.removeObserver(notification) }
         notification = nil
         monitor = nil
         firstRead = nil
-        revealInput = nil
         capture = nil
         captureStamp = nil
         generation = UUID()
@@ -254,8 +243,14 @@ final class ClipboardSession: ObservableObject {
     private func refresh(_ store: HistoryStore, cycle: UUID) async throws -> HistoryState {
         let list = listGeneration
         let limit = max(60, rows.count)
-        let (state, page) = try await store.categoryPage(since: revision, category: category, limit: limit)
-        guard generation == cycle, list == listGeneration, state.revision > revision, let page else { return state }
+        let now = Date()
+        // Time alone can age a row out of a read-only keyboard without a database revision.
+        let expired = category == ClipCategory.ordinary.id && rows.last.map {
+            !$0.isPinned && $0.updated <= settings.cutoff(at: now)
+        } == true
+        let (state, page) = try await store.categoryPage(since: expired ? -1 : revision, category: category, limit: limit, now: now)
+        guard generation == cycle, list == listGeneration, let page,
+              state.revision > revision || (expired && state.revision == revision) else { return state }
         pageEnd = page.rows.count < limit
         revision = state.revision
         var update = Transaction()
@@ -271,7 +266,6 @@ final class ClipboardSession: ObservableObject {
             if !loaded { loaded = true }
             if entryPhase != .history { entryPhase = .history }
         }
-        revealInput?.cancel()
         return state
     }
 
@@ -296,7 +290,7 @@ final class ClipboardSession: ObservableObject {
         listGeneration = UUID()
         category = id
         rows = []
-        entryPhase = .inputOnly
+        entryPhase = .loadingCategory
         paging = false
         pageEnd = false
         revision = -1
@@ -318,7 +312,7 @@ final class ClipboardSession: ObservableObject {
         paging = true
         defer { if generation == cycle, list == listGeneration { paging = false } }
         do {
-            let page = try await store.page(after: row, category: category)
+            let page = try await store.page(after: row, category: category, ordinaryCutoff: settings.cutoff(at: Date()))
             guard generation == cycle, list == listGeneration, revision == startingRevision, rows.last?.id == row.id else { return }
             rows.append(contentsOf: page)
             pageEnd = page.count < 60
